@@ -20,8 +20,6 @@ proof.json
 public.json
 witness.wtns
 
-# Solidity verifier
-*Verifier.sol
 
 # Test inputs (contains secrets)
 input.json
