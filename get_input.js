@@ -3,28 +3,6 @@ const circomlibjs = require('circomlibjs');
 const fs = require('fs');
 const { poseidon1, poseidon3 } = require('poseidon-lite');
 
-// Helper function to convert a big integer to a 256-bit array (little-endian)
-function bigIntToBits256(bigIntVal) {
-	// Ensure we're working with a BigInt
-	let val = BigInt(bigIntVal);
-	const bits = [];
-
-	// Convert to 256 bits (little-endian)
-	for (let i = 0; i < 256; i++) {
-		bits.push(Number(val & 1n));
-		val = val >> 1n;
-	}
-
-	return bits;
-}
-
-function bytesToBigIntLE(bytes) {
-	const a = bytes instanceof Uint8Array ? bytes : Uint8Array.from(bytes);
-	let x = 0n;
-	for (let i = 0; i < a.length; i++) x += BigInt(a[i]) << (8n * BigInt(i));
-	return x;
-}
-
 function toBytesLE32(n) {
 	let x = BigInt(n);
 	const out = new Uint8Array(32);
@@ -32,17 +10,6 @@ function toBytesLE32(n) {
 	return out;
 }
 
-// Convert bits (LSB first) to bytes (LSB first)
-function bitsToBytes(bits) {
-	const numBytes = Math.ceil(bits.length / 8);
-	const bytes = new Uint8Array(numBytes);
-	for (let i = 0; i < bits.length; i++) {
-		const byteIdx = Math.floor(i / 8);
-		const bitIdx = i % 8;
-		if (bits[i]) bytes[byteIdx] |= (1 << bitIdx);
-	}
-	return bytes;
-}
 // bytes -> LSB-first bits
 function bytesToBitsLE(bytes) {
 	const bits = [];
@@ -52,18 +19,12 @@ function bytesToBitsLE(bytes) {
 	}
 	return bits; // length = bytes.length*8
 }
-// BigInt -> LSB-first bits of given length
-function bitsFromBigInt(n, length) {
-	const out = [];
-	let x = BigInt(n);
-	for (let i = 0n; i < BigInt(length); i++) out.push(Number((x >> i) & 1n));
-	return out;
-}
 
 // Helper function to generate random BigInt within BN128 field
 function generateRandomBigInt() {
 	// BN128 field modulus
-	const BN128_FIELD = 21888242871839275222246405745257275088548364400416034343698204186575808495617n;
+	const BN128_FIELD =
+		21888242871839275222246405745257275088548364400416034343698204186575808495617n;
 	// Generate random value less than the field
 	let val;
 	do {
@@ -76,7 +37,6 @@ async function generateVoteInputs() {
 	console.log('Generating inputs for VoteScheme circuit...');
 
 	// Initialize circomlibjs components
-	const poseidon = await circomlibjs.buildPoseidon();
 	const eddsa = await circomlibjs.buildEddsa();
 	const babyjub = await circomlibjs.buildBabyjub();
 
