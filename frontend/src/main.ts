@@ -6,6 +6,7 @@ import {
 	type VoteCredentials,
 } from './zkUtils';
 import { generateProof, verifyProof, parsePublicSignals, exportProof } from './proofGenerator';
+import { verifyProofOnChain, isMetaMaskInstalled, getVerifierContractAddress, getExplorerLink } from './blockchainVerifier';
 
 // Fixed issuer private key (for demo purposes - in production, this would be server-side)
 const ISSUER_PRIVATE_KEY = new Uint8Array([
@@ -25,6 +26,7 @@ let currentPublicSignals: string[] = [];
 const generateCredBtn = document.querySelector<HTMLButtonElement>('#generateCred')!;
 const generateProofBtn = document.querySelector<HTMLButtonElement>('#generateProof')!;
 const verifyProofBtn = document.querySelector<HTMLButtonElement>('#verifyProof')!;
+const verifyOnChainBtn = document.querySelector<HTMLButtonElement>('#verifyOnChain')!;
 const credentialsDiv = document.querySelector<HTMLDivElement>('#credentials')!;
 const proofOutputDiv = document.querySelector<HTMLDivElement>('#proofOutput')!;
 const logDiv = document.querySelector<HTMLDivElement>('#log')!;
@@ -215,6 +217,10 @@ verifyProofBtn.addEventListener('click', async () => {
         <p>The nullifier ensures this vote cannot be cast twice.</p>
       `;
 			proofOutputDiv.appendChild(resultDiv);
+			
+			// Enable on-chain verification button
+			verifyOnChainBtn.disabled = false;
+			log('You can now verify this proof on-chain using MetaMask', 'info');
 		} else {
 			log('❌ PROOF IS INVALID!', 'error');
 
@@ -230,10 +236,94 @@ verifyProofBtn.addEventListener('click', async () => {
 		log(`Error: ${error instanceof Error ? error.message : 'Unknown error'}`, 'error');
 	} finally {
 		verifyProofBtn.disabled = false;
-		verifyProofBtn.textContent = '3. Verify Proof';
+		verifyProofBtn.textContent = '3. Verify Proof (Local)';
+	}
+});
+
+// Step 4: Verify proof on-chain
+verifyOnChainBtn.addEventListener('click', async () => {
+	if (!currentProof || !currentPublicSignals.length) {
+		log('No proof to verify! Generate a proof first.', 'error');
+		return;
+	}
+
+	try {
+		log('Starting on-chain verification...', 'info');
+		verifyOnChainBtn.disabled = true;
+		verifyOnChainBtn.textContent = 'Verifying...';
+
+		// Check if MetaMask is installed
+		if (!isMetaMaskInstalled()) {
+			log('❌ MetaMask not detected!', 'error');
+			log('Please install MetaMask: https://metamask.io', 'error');
+			return;
+		}
+
+		const contractAddress = getVerifierContractAddress();
+		log(`Contract address: ${contractAddress}`, 'info');
+		
+		if (contractAddress === '0x0000000000000000000000000000000000000000') {
+			log('⚠️ Placeholder contract address detected!', 'error');
+			log('Please update VERIFIER_CONTRACT_ADDRESS in blockchainVerifier.ts', 'error');
+			return;
+		}
+
+		// Verify proof on-chain
+		const result = await verifyProofOnChain(
+			currentProof,
+			currentPublicSignals,
+			(msg) => log(msg, 'info')
+		);
+
+		if (result.success) {
+			log('🎉 ON-CHAIN VERIFICATION SUCCESSFUL!', 'success');
+			log('The smart contract verified your proof on BSC Testnet!', 'success');
+
+			// Add on-chain verification result to display
+			const resultDiv = document.createElement('div');
+			resultDiv.className = 'verification-result success';
+			resultDiv.innerHTML = `
+				<h3>✅ On-Chain Verification Successful!</h3>
+				<p><strong>Network:</strong> Binance Smart Chain Testnet</p>
+				<p><strong>Contract:</strong> <a href="${getExplorerLink(contractAddress)}" target="_blank">${contractAddress}</a></p>
+				<p>Your zkSNARK proof has been verified by the deployed smart contract.</p>
+				<p>This vote would be accepted on the blockchain!</p>
+			`;
+			proofOutputDiv.appendChild(resultDiv);
+			
+			verifyOnChainBtn.disabled = true;
+			verifyOnChainBtn.textContent = '✅ Verified On-Chain';
+		} else {
+			log('❌ ON-CHAIN VERIFICATION FAILED!', 'error');
+			if (result.error) {
+				log(`Error: ${result.error}`, 'error');
+			}
+
+			const resultDiv = document.createElement('div');
+			resultDiv.className = 'verification-result error';
+			resultDiv.innerHTML = `
+				<h3>❌ On-Chain Verification Failed!</h3>
+				<p>${result.error || 'The smart contract rejected this proof.'}</p>
+			`;
+			proofOutputDiv.appendChild(resultDiv);
+		}
+	} catch (error) {
+		log(`Error: ${error instanceof Error ? error.message : 'Unknown error'}`, 'error');
+	} finally {
+		if (verifyOnChainBtn.textContent === 'Verifying...') {
+			verifyOnChainBtn.disabled = false;
+			verifyOnChainBtn.textContent = '4. Verify Proof (On-Chain)';
+		}
 	}
 });
 
 // Initialize
 log('zkSNARK Voting Demo Ready!', 'success');
 log('Click "Generate Credentials" to start...');
+
+// Log MetaMask status
+if (isMetaMaskInstalled()) {
+	log('✅ MetaMask detected - on-chain verification available', 'success');
+} else {
+	log('⚠️ MetaMask not detected - on-chain verification unavailable', 'info');
+}
