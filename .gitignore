@@ -1,7 +1,35 @@
-node_modules
-build
+# Dependencies
+node_modules/
+
+# Build outputs
+build/
+dist/
+
+# Compiled circuit files
+*.r1cs
+*.sym
+*.wasm
+
+# Trusted setup files (large, download separately)
+*.ptau
+
+# Generated keys and proofs
+*.zkey
+verification_key.json
+proof.json
+public.json
+witness.wtns
+
+# Solidity verifier
+*Verifier.sol
+
+# Test inputs (contains secrets)
+input.json
+
+# Environment
 .env
 .DS_Store
-dist
-.ptau
-*.ptau
+
+# Logs
+*.log
+npm-debug.log*

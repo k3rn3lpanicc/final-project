@@ -1,7 +1,7 @@
 const crypto = require('crypto');
 const circomlibjs = require('circomlibjs');
 const fs = require('fs');
-const { execSync } = require('child_process');
+const { poseidon1, poseidon3 } = require('poseidon-lite');
 
 // Helper function to convert a big integer to a 256-bit array (little-endian)
 function bigIntToBits256(bigIntVal) {
@@ -59,25 +59,6 @@ function bitsFromBigInt(n, length) {
 	for (let i = 0n; i < BigInt(length); i++) out.push(Number((x >> i) & 1n));
 	return out;
 }
-// Normalize poseidon output (some builds return [fe])
-function FE(poseidonFn, arr) {
-	const v = poseidonFn(arr);
-	if (typeof v === 'bigint') return v;
-	if (Array.isArray(v) && v.length === 1 && typeof v[0] === 'bigint') return v[0];
-	// If it looks like a byte array, treat it as LE bytes
-	if (
-		v instanceof Uint8Array ||
-		(Array.isArray(v) && v.every((n) => Number.isInteger(n) && n >= 0 && n < 256))
-	) {
-		return bytesToBigIntLE(v);
-	}
-	// Last resort: try decimal string
-	if (v && typeof v.toString === 'function') {
-		const s = v.toString();
-		if (/^\d+$/.test(s)) return BigInt(s);
-	}
-	throw new Error('Unsupported Poseidon return type: ' + typeof v);
-}
 
 // Helper function to generate random BigInt within BN128 field
 function generateRandomBigInt() {
@@ -122,33 +103,15 @@ async function generateVoteInputs() {
 	console.log('Private key (hex):', issuerPrivKey.toString('hex'));
 	console.log('Public key [x, y]:', [issuerPubKey[0].toString(), issuerPubKey[1].toString()]);
 
-	// 3. Compute hashes using the circuit
-	console.log('\nComputing Poseidon hashes using circuit...');
-	
-	// Write temporary input for circuit computation
-	const tempInput = {
-		ID: ID.toString(),
-		X: X.toString(),
-		Xp: Xp.toString(),
-		electionId: electionId.toString()
-	};
-	fs.writeFileSync('./temp_compute_input.json', JSON.stringify(tempInput));
-	
-	// Run the compute_values circuit
-	execSync('cd build\\compute_values_js && node generate_witness.js compute_values.wasm ..\\..\\temp_compute_input.json temp_witness.wtns', {stdio: 'inherit'});
-	
-	// Read the witness
-	const snarkjs = require('snarkjs');
-	const witness = await snarkjs.wtns.exportJson('./build/compute_values_js/temp_witness.wtns');
-	const hashXp = witness[1];
-	const msgField = witness[2];
-	const nh = witness[3];
-	
-	console.log('Circuit-computed hashXp:', hashXp.toString());
-	console.log('Circuit-computed msgField:', msgField.toString());
-	console.log('Circuit-computed nullifier:', nh.toString());
+	// 3. Compute hashes using poseidon-lite (matches circomlib v2)
+	const hashXp = poseidon1([Xp]);
+	console.log('\nComputed hashXp:', hashXp.toString());
 
-	// 4. Sign the message field computed by the circuit
+	// 4. Compute message = Poseidon(ID, X, hashXp)
+	const msgField = poseidon3([ID, X, hashXp]);
+	console.log('Computed msgField:', msgField.toString());
+
+	// 5. Sign the message
 	const msgBytes = toBytesLE32(msgField);
 	const signature = eddsa.signPedersen(issuerPrivKey, msgBytes);
 
@@ -160,7 +123,11 @@ async function generateVoteInputs() {
 	const R8_bits = bytesToBitsLE(babyjub.packPoint(signature.R8));
 	const S_bits = bytesToBitsLE(toBytesLE32(BigInt(signature.S)));
 
-	// 5. Create the input object
+	// 6. Compute nullifier hash = Poseidon(X, Xp, electionId)
+	const nh = poseidon3([X, Xp, electionId]);
+	console.log('\nComputed nullifier:', nh.toString());
+
+	// 7. Create the input object
 	const inputJson = {
 		nh: nh.toString(),
 		electionId: electionId.toString(),
@@ -172,7 +139,7 @@ async function generateVoteInputs() {
 		S: S_bits,
 	};
 
-	// 6. Verify the signature to ensure everything is correct
+	// 8. Verify the signature to ensure everything is correct
 	const isValid = eddsa.verifyPedersen(msgBytes, signature, issuerPubKey);
 	console.log('\nSignature verification result:', isValid);
 

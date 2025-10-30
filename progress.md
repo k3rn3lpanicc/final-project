@@ -86,17 +86,23 @@ for (var i=0; i<256; i++) {
 
 **Evidence**:
 ```
-JavaScript Poseidon(Xp):  16403170040751689178581032341500349624147819147970814243609488289911566609388
-Circuit Poseidon(Xp):      5972441635514246144761410209880268220067336074491674653770762422110656482285
+JavaScript circomlibjs Poseidon(Xp):  16403170040751689178581032341500349624147819147970814243609488289911566609388
+Circuit circomlib v2 Poseidon(Xp):     5062018642126473091047304516208008570012259967526145982936060306396677630936
 ```
 
 **Solution**:
-Created a helper circuit (`compute_values.circom`) that computes all Poseidon hashes:
-- Runs the circuit to generate a witness
-- Extracts the correct hash values from the witness
-- Uses these values for signature generation
+Discovered that circomlibjs v0.1.7 is not compatible with circomlib v2.0.5. The solution is to use `poseidon-lite` npm package which correctly implements the Poseidon hash function matching circomlib v2:
 
-This ensures JavaScript and circuit computations match exactly.
+```javascript
+const { poseidon1, poseidon3 } = require('poseidon-lite');
+
+// Now these match the circuit exactly
+const hashXp = poseidon1([Xp]);
+const msgField = poseidon3([ID, X, hashXp]);
+const nullifier = poseidon3([X, Xp, electionId]);
+```
+
+This provides a pure JavaScript solution that can be used in frontend applications without needing to call circuits or generate witnesses.
 
 ### Phase 5: Field Boundary Validation
 **Problem**: Random value generation could produce values ≥ BN128 field modulus.
@@ -113,25 +119,75 @@ function generateRandomBigInt() {
 }
 ```
 
-### Phase 6: Complete Input Generation Workflow
-Updated `get_input.js` to:
+### Phase 6: Pure JavaScript Input Generation
+Updated `get_input.js` to use `poseidon-lite` for all hash computations:
 1. Generate random values within field bounds
-2. Write temporary input file for compute_values circuit
-3. Execute circuit to compute Poseidon hashes
-4. Read witness to extract hash values
-5. Sign the circuit-computed message with EdDSA
-6. Generate valid input.json with all components
+2. Compute Poseidon hashes using `poseidon-lite` (matches circomlib v2)
+3. Sign the computed message with EdDSA
+4. Generate valid input.json with all components
+
+**Key Achievement**: The input generation is now pure JavaScript with no dependency on running circuits or generating witnesses. This makes it suitable for frontend integration.
 
 ## Commands Reference
+
+### Prerequisites
+
+Install dependencies:
+```bash
+npm install
+```
+
+### Powers of Tau Ceremony (Trusted Setup)
+
+If you need to generate new Powers of Tau files:
+
+```bash
+# Start a new Powers of Tau ceremony (replace 17 with desired power, 2^17 = 131,072 constraints)
+snarkjs powersoftau new bn128 17 pot17_0000.ptau -v
+
+# Contribute to the ceremony (adds entropy)
+snarkjs powersoftau contribute pot17_0000.ptau pot17_0001.ptau --name="First contribution" -v
+
+# Phase 2: Prepare for circuit-specific setup
+snarkjs powersoftau prepare phase2 pot17_0001.ptau pot17_final.ptau -v
+
+# Verify the Powers of Tau
+snarkjs powersoftau verify pot17_final.ptau
+```
+
+**Note**: The power (17) must be large enough for your circuit:
+- Circuit has ~20,097 constraints
+- 2^17 = 131,072 constraints (sufficient)
+- Use power 18 (2^18 = 262,144) or higher for safety margin
 
 ### Build and Compile
 
 ```bash
-# Compile the main VoteScheme circuit
+# Compile the VoteScheme circuit
 .\circom.exe VoteScheme.circom --r1cs --wasm --sym -o build -l node_modules
+```
 
-# Compile the helper circuit (required for input generation)
-.\circom.exe compute_values.circom --r1cs --wasm --sym -o build -l node_modules
+This generates:
+- `build/VoteScheme.r1cs` - R1CS constraint system
+- `build/VoteScheme_js/VoteScheme.wasm` - WebAssembly witness generator
+- `build/VoteScheme.sym` - Symbol file for debugging
+
+### Generate zkSNARK Setup Keys
+
+After compiling the circuit and having the Powers of Tau file:
+
+```bash
+# Generate the proving and verification keys
+snarkjs groth16 setup build/VoteScheme.r1cs pot17_final.ptau VoteScheme_0000.zkey
+
+# Contribute to phase 2 ceremony (circuit-specific)
+snarkjs zkey contribute VoteScheme_0000.zkey VoteScheme_final.zkey --name="Circuit contribution" -v
+
+# Verify the zkey
+snarkjs zkey verify build/VoteScheme.r1cs pot17_final.ptau VoteScheme_final.zkey
+
+# Export verification key
+snarkjs zkey export verificationkey VoteScheme_final.zkey verification_key.json
 ```
 
 ### Generate Test Inputs
@@ -147,36 +203,87 @@ This creates `input.json` with all required fields:
 
 ### Test the Circuit
 
+Generate a witness to verify inputs are valid:
+
 ```bash
-# Generate witness to verify inputs are valid
 cd build\VoteScheme_js
 node generate_witness.js VoteScheme.wasm ..\..\input.json witness.wtns
+cd ..\..
 ```
 
-If successful, the witness is generated without errors, proving all constraints are satisfied.
+If successful, the witness is generated without errors.
+
+### Generate and Verify Proof
+
+```bash
+# Generate the proof
+snarkjs groth16 prove VoteScheme_final.zkey build/VoteScheme_js/witness.wtns proof.json public.json
+
+# Verify the proof
+snarkjs groth16 verify verification_key.json public.json proof.json
+```
+
+If valid, you'll see: `[INFO]  snarkJS: OK!`
+
+### Export Solidity Verifier
+
+```bash
+# Generate Solidity verifier contract
+snarkjs zkey export solidityverifier VoteScheme_final.zkey VoteSchemeVerifier.sol
+```
+
+Deploy this contract to your blockchain to verify proofs on-chain.
 
 ### Complete Build and Test Flow
 
 ```bash
-# Full workflow from scratch
+# 1. Install dependencies
+npm install
+
+# 2. Compile circuit
 .\circom.exe VoteScheme.circom --r1cs --wasm --sym -o build -l node_modules
-.\circom.exe compute_values.circom --r1cs --wasm --sym -o build -l node_modules
+
+# 3. Setup trusted setup (if not already done)
+snarkjs powersoftau new bn128 17 pot17_0000.ptau -v
+snarkjs powersoftau contribute pot17_0000.ptau pot17_0001.ptau --name="First contribution" -v
+snarkjs powersoftau prepare phase2 pot17_0001.ptau pot17_final.ptau -v
+
+# 4. Generate circuit-specific keys
+snarkjs groth16 setup build/VoteScheme.r1cs pot17_final.ptau VoteScheme_0000.zkey
+snarkjs zkey contribute VoteScheme_0000.zkey VoteScheme_final.zkey --name="Circuit contribution" -v
+
+# 5. Export verification key
+snarkjs zkey export verificationkey VoteScheme_final.zkey verification_key.json
+
+# 6. Generate test inputs
 node get_input.js
+
+# 7. Generate witness
 cd build\VoteScheme_js
 node generate_witness.js VoteScheme.wasm ..\..\input.json witness.wtns
+cd ..\..
+
+# 8. Generate proof
+snarkjs groth16 prove VoteScheme_final.zkey build/VoteScheme_js/witness.wtns proof.json public.json
+
+# 9. Verify proof
+snarkjs groth16 verify verification_key.json public.json proof.json
+
+# 10. Export Solidity verifier
+snarkjs zkey export solidityverifier VoteScheme_final.zkey VoteSchemeVerifier.sol
 ```
 
 ## Technical Insights
 
 ### Key Learnings
 
-1. **Library Compatibility**: Different versions of circomlib and circomlibjs may implement cryptographic primitives differently. Always verify hash outputs match between JS and circuits.
+1. **Library Compatibility**: circomlibjs v0.1.7 and circomlib v2.0.5 have incompatible Poseidon implementations. Use `poseidon-lite` npm package for correct v2 Poseidon hashes in JavaScript.
 
 2. **Field Arithmetic**: All values in zkSNARK circuits operate modulo the field prime. Values must be validated before use to prevent unexpected behavior.
 
 3. **Bit Representation**: EdDSA verifiers in Circom expect bit arrays, not field elements. The conversion must match exactly what was signed.
 
-4. **Witness-Based Validation**: When JS library implementations don't match circuit implementations, use the circuit itself as the source of truth by extracting values from witnesses.
+4. **Frontend-Ready Solution**: By using `poseidon-lite`, the input generation is pure JavaScript without needing to run circuits or generate witnesses, making it suitable for browser/frontend integration.
 
 ### Circuit Statistics
 
@@ -198,25 +305,41 @@ Wires: 22,344
     "circomlib": "^2.0.5",
     "circomlibjs": "^0.1.7",
     "ffjavascript": "^0.2.57",
-    "snarkjs": "^0.7.5"
+    "snarkjs": "^0.7.5",
+    "poseidon-lite": "^0.3.0"
   }
 }
 ```
+
+**Note**: `circomlibjs` v0.1.7 has an incompatible Poseidon implementation with `circomlib` v2.0.5. We use `poseidon-lite` v0.3.0 which correctly implements the Poseidon hash matching circomlib v2.
 
 ## Project Structure
 
 ```
 Project/
 ├── VoteScheme.circom          # Main voting circuit
-├── compute_values.circom      # Helper circuit for Poseidon computation
-├── get_input.js              # Input generation script
-├── input.json                # Generated test inputs
+├── get_input.js              # Input generation script (pure JS)
+├── input.json                # Generated test inputs (gitignored)
+├── package.json              # Node.js dependencies
+├── package-lock.json         # Dependency lock file
+├── circom.exe                # Circom compiler (Windows)
+├── pot17_*.ptau              # Powers of Tau trusted setup files
 ├── build/
-│   ├── VoteScheme_js/        # Compiled main circuit
-│   └── compute_values_js/    # Compiled helper circuit
-├── circom.exe                # Circom compiler
-├── node_modules/             # Dependencies
-└── pot17_*.ptau             # Powers of Tau trusted setup files
+│   ├── VoteScheme.r1cs       # Compiled constraint system
+│   ├── VoteScheme.sym        # Debug symbols
+│   └── VoteScheme_js/        # WASM witness generator
+│       └── VoteScheme.wasm
+├── VoteScheme_final.zkey     # Circuit-specific proving key (generated)
+├── verification_key.json     # Verification key (generated)
+├── proof.json                # Generated proof (generated)
+├── public.json               # Public inputs (generated)
+├── VoteSchemeVerifier.sol    # Solidity verifier contract (generated)
+├── README.md                 # Quick start guide
+├── SOLUTION.md               # Solution explanation
+└── progress.md               # This file - development history
+
+Files marked (generated) are created during the build/proof generation process.
+Files marked (gitignored) should not be committed to version control.
 ```
 
 ## Current Status
@@ -229,21 +352,40 @@ The circuit now successfully:
 - Verifies EdDSA signatures correctly
 - Validates nullifiers correctly
 - Generates witnesses successfully
+- Pure JavaScript input generation (frontend-ready)
 
 All constraints are satisfied, and the system is ready for:
 - Full zkSNARK proof generation
+- Solidity verifier contract deployment
 - Integration with smart contracts
 - Frontend application development
 
 ## Next Steps (Future Work)
 
-1. **Generate zkSNARK Proofs**: Use snarkjs to generate full zero-knowledge proofs
-2. **Trusted Setup**: Perform ceremony for production deployment
-3. **Smart Contract**: Deploy Solidity verifier contract
-4. **Voter Registration**: Implement credential issuance system
-5. **Frontend**: Build user interface for voting
-6. **Testing**: Create comprehensive test suite
-7. **Documentation**: Add API documentation and usage examples
+1. **Production Deployment**:
+   - Perform multi-party Powers of Tau ceremony
+   - Generate final production keys
+   - Deploy Solidity verifier contract
+
+2. **Frontend Integration**:
+   - Build voter interface
+   - Implement credential management
+   - Add proof generation UI
+
+3. **Backend Services**:
+   - Credential issuance system
+   - Election management
+   - Result tallying
+
+4. **Testing**:
+   - Create comprehensive test suite
+   - Security audit
+   - Performance optimization
+
+5. **Documentation**:
+   - API documentation
+   - Deployment guide
+   - User manual
 
 ## Conclusion
 
@@ -251,6 +393,7 @@ This phase successfully resolved critical compatibility issues between JavaScrip
 
 ---
 
-**Date**: October 30, 2025  
+**Last Updated**: October 30, 2025  
 **Status**: Phase 1 Complete ✅  
-**Next Milestone**: zkSNARK Proof Generation
+**Version**: 1.0.0  
+**Next Milestone**: Production Trusted Setup & Deployment
