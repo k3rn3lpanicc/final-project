@@ -4,14 +4,14 @@ import type { Proof } from './proofGenerator';
 
 // Binance Smart Chain Testnet configuration
 const BSC_TESTNET_CONFIG = {
-	chainId: 121212,
-	name: 'Hardhat',
-	rpcUrl: 'http://127.0.0.1:8545/',
+	chainId: 97,
+	name: 'BSC Testnet',
+	rpcUrl: 'https://data-seed-prebsc-1-s1.binance.org:8545/',
 	blockExplorer: 'https://testnet.bscscan.com',
 };
 
 // Placeholder contract address (user will update this)
-const VERIFIER_CONTRACT_ADDRESS = '0x04172AC48eB0e8B6d634ABcB78129b43469F6Ab8'; // TODO: Update with actual deployed address
+const VERIFIER_CONTRACT_ADDRESS = '0xD8dc4B2a315012bCae0987f1758B7861BD266E78';
 
 // Groth16Verifier contract ABI (only the verifyProof function)
 const VERIFIER_ABI = [
@@ -85,40 +85,40 @@ export async function connectWallet(): Promise<string> {
 		const accounts = await ethereum.request({ method: 'eth_requestAccounts' });
 
 		// Check if on BSC Testnet
-		// const chainId = await ethereum.request({ method: 'eth_chainId' });
+		const chainId = await ethereum.request({ method: 'eth_chainId' });
 
-		// if (chainId !== '0x61') {
-		// 	// 0x61 = 97 in hex
-		// 	// Try to switch to BSC Testnet
-		// 	try {
-		// 		await ethereum.request({
-		// 			method: 'wallet_switchEthereumChain',
-		// 			params: [{ chainId: '0x61' }],
-		// 		});
-		// 	} catch (switchError: any) {
-		// 		// Chain not added, try to add it
-		// 		if (switchError.code === 4902) {
-		// 			await ethereum.request({
-		// 				method: 'wallet_addEthereumChain',
-		// 				params: [
-		// 					{
-		// 						chainId: '0x61',
-		// 						chainName: 'BSC Testnet',
-		// 						nativeCurrency: {
-		// 							name: 'BNB',
-		// 							symbol: 'tBNB',
-		// 							decimals: 18,
-		// 						},
-		// 						rpcUrls: [BSC_TESTNET_CONFIG.rpcUrl],
-		// 						blockExplorerUrls: [BSC_TESTNET_CONFIG.blockExplorer],
-		// 					},
-		// 				],
-		// 			});
-		// 		} else {
-		// 			throw switchError;
-		// 		}
-		// 	}
-		// }
+		if (chainId !== '0x61') {
+			// 0x61 = 97 in hex
+			// Try to switch to BSC Testnet
+			try {
+				await ethereum.request({
+					method: 'wallet_switchEthereumChain',
+					params: [{ chainId: '0x61' }],
+				});
+			} catch (switchError: any) {
+				// Chain not added, try to add it
+				if (switchError.code === 4902) {
+					await ethereum.request({
+						method: 'wallet_addEthereumChain',
+						params: [
+							{
+								chainId: '0x61',
+								chainName: 'BSC Testnet',
+								nativeCurrency: {
+									name: 'BNB',
+									symbol: 'tBNB',
+									decimals: 18,
+								},
+								rpcUrls: [BSC_TESTNET_CONFIG.rpcUrl],
+								blockExplorerUrls: [BSC_TESTNET_CONFIG.blockExplorer],
+							},
+						],
+					});
+				} else {
+					throw switchError;
+				}
+			}
+		}
 
 		return accounts[0];
 	} catch (error) {
