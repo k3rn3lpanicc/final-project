@@ -3,3 +3,14 @@ Proof Helper:
 
 Verifier:
 0xD8dc4B2a315012bCae0987f1758B7861BD266E78
+
+
+
+SKALE mainnet:
+Proof Helper:
+0xD3D118137f97E44682410287638D66b8831622be
+https://honorable-steel-rasalhague.explorer.mainnet.skalenodes.com/address/0xD3D118137f97E44682410287638D66b8831622be?tab=contract_code
+
+Verifier:
+0x9D4891Be53449a35dECC7f03e81ADf7e164445B5
+https://honorable-steel-rasalhague.explorer.mainnet.skalenodes.com/address/0x9D4891Be53449a35dECC7f03e81ADf7e164445B5?tab=contract
