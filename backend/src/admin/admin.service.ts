@@ -31,12 +31,22 @@ export class AdminService {
     };
   }
 
-  async listAllRequests(): Promise<VoterRequestResponseDto[]> {
-    const requests = await this.voterRequestRepository.find({
+  async listAllRequests(page: number = 1, limit: number = 10, status?: string) {
+    const skip = (page - 1) * limit;
+    
+    const whereCondition: any = {};
+    if (status && ['pending', 'approved', 'rejected'].includes(status)) {
+      whereCondition.status = status as RequestStatus;
+    }
+
+    const [requests, total] = await this.voterRequestRepository.findAndCount({
+      where: whereCondition,
       order: { createdAt: 'DESC' },
+      skip,
+      take: limit,
     });
 
-    return requests.map((req) => ({
+    const data = requests.map((req) => ({
       id: req.id,
       fullName: req.fullName,
       passportNumber: req.passportNumber,
@@ -50,6 +60,20 @@ export class AdminService {
       passportImagePath: req.passportImagePath,
       photoImagePath: req.photoImagePath,
     }));
+
+    const totalPages = Math.ceil(total / limit);
+
+    return {
+      data,
+      pagination: {
+        currentPage: page,
+        totalPages,
+        totalItems: total,
+        itemsPerPage: limit,
+        hasNextPage: page < totalPages,
+        hasPrevPage: page > 1,
+      },
+    };
   }
 
   async listPendingRequests(): Promise<VoterRequestResponseDto[]> {

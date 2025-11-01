@@ -24,6 +24,18 @@ export interface Request {
   };
 }
 
+export interface PaginatedResponse<T> {
+  data: T[];
+  pagination: {
+    currentPage: number;
+    totalPages: number;
+    totalItems: number;
+    itemsPerPage: number;
+    hasNextPage: boolean;
+    hasPrevPage: boolean;
+  };
+}
+
 export interface Stats {
   total: number;
   pending: number;
@@ -32,8 +44,15 @@ export interface Stats {
 }
 
 export const api = {
-  async getAllRequests(): Promise<Request[]> {
-    const response = await axios.get(`${API_BASE_URL}/admin/requests`);
+  async getAllRequests(page: number = 1, limit: number = 10, status?: string): Promise<PaginatedResponse<Request>> {
+    const params = new URLSearchParams({
+      page: page.toString(),
+      limit: limit.toString(),
+    });
+    if (status) {
+      params.append('status', status);
+    }
+    const response = await axios.get(`${API_BASE_URL}/admin/requests?${params}`);
     return response.data;
   },
 
@@ -53,12 +72,14 @@ export const api = {
   },
 
   async getStats(): Promise<Stats> {
-    const requests = await this.getAllRequests();
+    // Get total counts without pagination
+    const allRequests = await axios.get(`${API_BASE_URL}/admin/requests?limit=1000`);
+    const requests = allRequests.data.data;
     return {
-      total: requests.length,
-      pending: requests.filter(r => r.status === 'pending').length,
-      approved: requests.filter(r => r.status === 'approved').length,
-      rejected: requests.filter(r => r.status === 'rejected').length,
+      total: allRequests.data.pagination.totalItems,
+      pending: requests.filter((r: Request) => r.status === 'pending').length,
+      approved: requests.filter((r: Request) => r.status === 'approved').length,
+      rejected: requests.filter((r: Request) => r.status === 'rejected').length,
     };
   },
 

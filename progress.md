@@ -1276,8 +1276,8 @@ The system is ready for:
 
 **Last Updated**: November 1, 2025  
 **Status**: ✅ Full System with Backend API & Admin Dashboard - Production Ready  
-**Version**: 3.1.0  
-**Phase**: Phase 11 Complete - Admin Dashboard with Image Preview  
+**Version**: 3.2.0  
+**Phase**: Phase 12 Complete - Admin Dashboard with Pagination  
 **Contract**: 0xD8dc4B2a315012bCae0987f1758B7861BD266E78 (BSC Testnet)
 
 **Contributors**: zkSNARK Development Team  
@@ -2639,3 +2639,221 @@ npm run dev
 ```
 
 ---
+
+## Phase 12: Pagination Implementation for Admin Dashboard
+
+### Overview
+
+Added server-side pagination to both backend API and admin dashboard to efficiently handle large numbers of voter registration requests. This improves performance and user experience when dealing with hundreds or thousands of requests.
+
+### Backend Pagination Implementation
+
+**Updated Endpoints**:
+
+**GET /admin/requests** now supports pagination:
+```
+Query Parameters:
+- page: number (default: 1) - Page number starting from 1
+- limit: number (default: 10) - Items per page
+- status: string (optional) - Filter by status ('pending', 'approved', 'rejected')
+```
+
+**Response Format**:
+```json
+{
+  "data": [
+    {
+      "id": "550e8400-e29b-41d4-a716-446655440000",
+      "fullName": "John Doe",
+      "passportNumber": "AB1234567",
+      ...
+    }
+  ],
+  "pagination": {
+    "currentPage": 1,
+    "totalPages": 5,
+    "totalItems": 47,
+    "itemsPerPage": 10,
+    "hasNextPage": true,
+    "hasPrevPage": false
+  }
+}
+```
+
+**Backend Changes**:
+
+1. **admin.controller.ts**:
+   - Added Query() decorators for pagination parameters
+   - Added Swagger documentation for new query parameters
+   - Updated response schema to include pagination metadata
+
+2. **admin.service.ts**:
+   - Modified listAllRequests() to accept pagination parameters
+   - Changed from find() to findAndCount() for total count
+   - Implemented skip and take for pagination
+   - Added status filtering support
+   - Returns paginated response with metadata
+
+### Frontend Pagination Implementation
+
+**Updated Dashboard Features**:
+
+1. **Pagination State Management**:
+   - currentPage, itemsPerPage, totalPages state variables
+   - Server-side filtering instead of client-side
+
+2. **Pagination UI Controls**:
+   - Previous button (disabled on first page)
+   - Page info display: "Page X of Y (Z total items)"
+   - Next button (disabled on last page)
+
+3. **Filter Integration**:
+   - Filters now reset to page 1 when changed
+   - Server-side filtering with pagination
+   - Combined status filter + pagination in single API call
+
+**Frontend Changes**:
+
+1. **api.ts**:
+   - Updated getAllRequests() to accept pagination parameters
+   - Added PaginatedResponse<T> interface
+   - Modified response type from array to paginated object
+
+2. **main.ts**:
+   - Changed from client-side filtering to server-side
+   - Added goToPage() function for navigation
+   - Updated loadRequests() to pass pagination params
+   - Modified renderRequests() to accept paginated response
+   - Added pagination controls to table
+   - Reset to page 1 when filter changes
+
+3. **style.css**:
+   - Added .pagination class for button container
+   - Styled .btn-page for Previous/Next buttons
+   - Added hover effects and disabled states
+   - Styled .page-info for current page display
+
+### User Experience Improvements
+
+**Performance Benefits**:
+- ✅ Faster initial page load (only loads 10 items instead of all)
+- ✅ Reduced API response size
+- ✅ Lower database query overhead
+- ✅ Improved browser rendering performance
+
+**User Interface**:
+- ✅ Clean pagination controls at bottom of table
+- ✅ Page info shows current position and total items
+- ✅ Previous/Next buttons with disabled states
+- ✅ Smooth transitions and hover effects
+- ✅ Filter changes reset to page 1 automatically
+
+**Backend Efficiency**:
+- ✅ Database query optimization with LIMIT and OFFSET
+- ✅ Only fetches required page of data
+- ✅ Supports status filtering at database level
+- ✅ Returns total count for pagination calculation
+
+### Testing Results
+
+**Backend Testing**:
+```bash
+# Test pagination endpoint
+GET http://localhost:3000/admin/requests?page=1&limit=5
+
+Response:
+{
+  "data": [...5 requests...],
+  "pagination": {
+    "currentPage": 1,
+    "totalPages": 1,
+    "totalItems": 5,
+    "itemsPerPage": 5,
+    "hasNextPage": false,
+    "hasPrevPage": false
+  }
+}
+```
+
+**Frontend Testing**:
+- ✅ Dashboard displays 10 requests per page by default
+- ✅ Previous button disabled on page 1
+- ✅ Next button disabled on last page
+- ✅ Page info updates correctly on navigation
+- ✅ Filter changes reset to page 1
+- ✅ Combined filter + pagination works correctly
+
+**Integration Testing**:
+- ✅ Backend returns paginated data correctly
+- ✅ Frontend parses pagination metadata
+- ✅ Navigation buttons work as expected
+- ✅ Status filtering preserves pagination
+- ✅ Auto-refresh maintains current page
+
+### System Status After Phase 12
+
+✅ **Circuit Layer**: Compiled, tested, verified  
+✅ **Smart Contract**: Deployed to BSC Testnet (0xD8dc4B2a315012bCae0987f1758B7861BD266E78)  
+✅ **Backend API**: NestJS with EdDSA signing, file uploads, database, **pagination**  
+✅ **Voter Frontend**: Browser-based proof generation, MetaMask integration  
+✅ **Admin Dashboard**: Full-featured review interface with **pagination**, image preview  
+✅ **Performance**: Optimized for large datasets with server-side pagination  
+✅ **End-to-End Flow**: Complete credential lifecycle from submission to on-chain verification  
+
+### Commands Summary
+
+**Test Pagination Endpoint**:
+```bash
+# PowerShell
+Invoke-RestMethod -Uri "http://localhost:3000/admin/requests?page=1&limit=5" | ConvertTo-Json -Depth 5
+
+# cURL
+curl "http://localhost:3000/admin/requests?page=2&limit=10&status=pending"
+```
+
+**Start Full System with Pagination**:
+```bash
+# 1. Start Backend API (with pagination support)
+cd backend
+npm start
+# Running on http://localhost:3000
+
+# 2. Start Admin Dashboard (with pagination UI)
+cd admin-dashboard
+npm run dev
+# Running on http://localhost:3002
+
+# 3. Start Voter Frontend
+cd frontend
+npm run dev
+# Running on http://localhost:5174
+```
+
+### Configuration
+
+**Default Settings**:
+- Items per page: 10 (configurable in frontend)
+- First page: 1 (1-indexed)
+- Auto-refresh: Every 30 seconds
+- Status filter: 'all' (shows all statuses)
+
+### Future Enhancements for Pagination
+
+**Additional Features**:
+- [ ] Jump to specific page input
+- [ ] Configurable items per page selector
+- [ ] Keyboard navigation (arrow keys)
+- [ ] URL state persistence (page in URL)
+- [ ] Infinite scroll option
+- [ ] Loading skeleton during page changes
+- [ ] Page prefetching for faster navigation
+
+**Advanced Filtering**:
+- [ ] Search by name/passport number
+- [ ] Date range filtering
+- [ ] Sort by different columns
+- [ ] Multiple status selection
+- [ ] Combined search + filter + pagination
+
+---
+

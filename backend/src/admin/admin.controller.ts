@@ -8,8 +8,9 @@ import {
   BadRequestException,
   Res,
   StreamableFile,
+  Query,
 } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiResponse, ApiBody } from '@nestjs/swagger';
+import { ApiTags, ApiOperation, ApiResponse, ApiBody, ApiQuery } from '@nestjs/swagger';
 import { Response } from 'express';
 import { createReadStream, existsSync } from 'fs';
 import { join } from 'path';
@@ -37,16 +38,41 @@ export class AdminController {
 
   @Get('requests')
   @ApiOperation({
-    summary: 'List all voter registration requests',
-    description: 'Get all pending, approved, and rejected voter registration requests',
+    summary: 'List all voter registration requests with pagination',
+    description: 'Get all pending, approved, and rejected voter registration requests with pagination support',
   })
+  @ApiQuery({ name: 'page', required: false, type: Number, example: 1, description: 'Page number (starts from 1)' })
+  @ApiQuery({ name: 'limit', required: false, type: Number, example: 10, description: 'Number of items per page' })
+  @ApiQuery({ name: 'status', required: false, enum: ['pending', 'approved', 'rejected'], description: 'Filter by status' })
   @ApiResponse({
     status: 200,
-    description: 'List of all requests',
-    type: [VoterRequestResponseDto],
+    description: 'Paginated list of requests',
+    schema: {
+      type: 'object',
+      properties: {
+        data: { type: 'array', items: { type: 'object' } },
+        pagination: {
+          type: 'object',
+          properties: {
+            currentPage: { type: 'number' },
+            totalPages: { type: 'number' },
+            totalItems: { type: 'number' },
+            itemsPerPage: { type: 'number' },
+            hasNextPage: { type: 'boolean' },
+            hasPrevPage: { type: 'boolean' },
+          },
+        },
+      },
+    },
   })
-  async listRequests(): Promise<VoterRequestResponseDto[]> {
-    return this.adminService.listAllRequests();
+  async listRequests(
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+    @Query('status') status?: string,
+  ) {
+    const pageNum = page ? parseInt(page, 10) : 1;
+    const limitNum = limit ? parseInt(limit, 10) : 10;
+    return this.adminService.listAllRequests(pageNum, limitNum, status);
   }
 
   @Get('requests/pending')

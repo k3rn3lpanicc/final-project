@@ -1,7 +1,9 @@
 import './style.css';
-import { api, Request } from './api';
+import { api, Request, PaginatedResponse } from './api';
 
-let allRequests: Request[] = [];
+let currentPage: number = 1;
+let itemsPerPage: number = 10;
+let totalPages: number = 1;
 let currentFilter: string = 'all';
 
 async function loadRequests() {
@@ -9,9 +11,11 @@ async function loadRequests() {
 		const requestsContainer = document.getElementById('requests-container')!;
 		requestsContainer.innerHTML = '<p class="loading">Loading requests...</p>';
 
-		allRequests = await api.getAllRequests();
+		const statusFilter = currentFilter === 'all' ? undefined : currentFilter;
+		const response: PaginatedResponse<Request> = await api.getAllRequests(currentPage, itemsPerPage, statusFilter);
+		
 		await updateStats();
-		renderRequests();
+		renderRequests(response);
 	} catch (error) {
 		console.error('Error loading requests:', error);
 		const requestsContainer = document.getElementById('requests-container')!;
@@ -31,15 +35,12 @@ async function updateStats() {
 	}
 }
 
-function renderRequests() {
+function renderRequests(response: PaginatedResponse<Request>) {
 	const requestsContainer = document.getElementById('requests-container')!;
+	const { data: requests, pagination } = response;
+	totalPages = pagination.totalPages;
 
-	const filteredRequests =
-		currentFilter === 'all'
-			? allRequests
-			: allRequests.filter((r) => r.status === currentFilter);
-
-	if (filteredRequests.length === 0) {
+	if (requests.length === 0) {
 		requestsContainer.innerHTML = '<p class="loading">No requests found.</p>';
 		return;
 	}
@@ -58,7 +59,7 @@ function renderRequests() {
         </tr>
       </thead>
       <tbody>
-        ${filteredRequests
+        ${requests
 			.map(
 				(request) => `
           <tr data-id="${request.id}">
@@ -100,6 +101,12 @@ function renderRequests() {
 			.join('')}
       </tbody>
     </table>
+    
+    <div class="pagination">
+      <button class="btn-page" onclick="goToPage(${pagination.currentPage - 1})" ${!pagination.hasPrevPage ? 'disabled' : ''}>Previous</button>
+      ${generatePageNumbers(pagination.currentPage, pagination.totalPages)}
+      <button class="btn-page" onclick="goToPage(${pagination.currentPage + 1})" ${!pagination.hasNextPage ? 'disabled' : ''}>Next</button>
+    </div>
   `;
 
 	// Add event listeners to menu buttons
@@ -173,8 +180,7 @@ async function rejectRequest(id: string) {
 
 async function viewDetails(id: string) {
 	try {
-		const request = allRequests.find((r) => r.id === id);
-		if (!request) return;
+		const request = await api.getRequestDetails(id);
 
 		const modal = document.createElement('div');
 		modal.className = 'modal active';
@@ -354,9 +360,62 @@ document.querySelectorAll('.filter-btn').forEach((btn) => {
 		document.querySelectorAll('.filter-btn').forEach((b) => b.classList.remove('active'));
 		(e.target as HTMLElement).classList.add('active');
 		currentFilter = (e.target as HTMLElement).dataset.status || 'all';
-		renderRequests();
+		currentPage = 1; // Reset to first page when filtering
+		loadRequests();
 	});
 });
+
+function generatePageNumbers(current: number, total: number): string {
+	const pages: (number | string)[] = [];
+	const maxVisible = 7;
+
+	if (total <= maxVisible) {
+		// Show all pages
+		for (let i = 1; i <= total; i++) {
+			pages.push(i);
+		}
+	} else {
+		// Always show first page
+		pages.push(1);
+
+		if (current > 3) {
+			pages.push('...');
+		}
+
+		// Show pages around current
+		const start = Math.max(2, current - 1);
+		const end = Math.min(total - 1, current + 1);
+
+		for (let i = start; i <= end; i++) {
+			pages.push(i);
+		}
+
+		if (current < total - 2) {
+			pages.push('...');
+		}
+
+		// Always show last page
+		if (total > 1) {
+			pages.push(total);
+		}
+	}
+
+	return pages
+		.map((page) => {
+			if (page === '...') {
+				return '<span class="page-ellipsis">...</span>';
+			}
+			const isActive = page === current ? 'active' : '';
+			return `<button class="btn-page-num ${isActive}" onclick="goToPage(${page})">${page}</button>`;
+		})
+		.join('');
+}
+
+function goToPage(page: number) {
+	if (page < 1 || page > totalPages) return;
+	currentPage = page;
+	loadRequests();
+}
 
 function toggleActionMenu(event: Event, requestId: string) {
 	event.stopPropagation();
@@ -387,6 +446,7 @@ document.addEventListener('click', () => {
 (window as any).viewDetails = viewDetails;
 (window as any).copySignature = copySignature;
 (window as any).toggleActionMenu = toggleActionMenu;
+(window as any).goToPage = goToPage;
 
 // Auto-refresh every 30 seconds
 setInterval(loadRequests, 30000);
