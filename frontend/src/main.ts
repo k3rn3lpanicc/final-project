@@ -7,6 +7,7 @@ import {
 import { generateProof, verifyProof, parsePublicSignals, exportProof } from './proofGenerator';
 import { verifyProofOnChain, isMetaMaskInstalled, getVerifierContractAddress, getExplorerLink } from './blockchainVerifier';
 import { voterAPI, type VoterRequest, type SignatureData } from './api';
+import { authService } from './auth';
 import { poseidon1 } from 'poseidon-lite';
 
 // Circuit file paths
@@ -42,8 +43,13 @@ function initApp() {
 	app.innerHTML = `
 		<div class="container">
 			<header>
-				<h1>🗳️ Voter Dashboard</h1>
-				<p>Zero-Knowledge Proof Voting System</p>
+				<div class="header-content">
+					<div>
+						<h1>🗳️ Voter Dashboard</h1>
+						<p>Zero-Knowledge Proof Voting System</p>
+					</div>
+					<button id="logoutBtn" class="btn btn-secondary">Logout</button>
+				</div>
 			</header>
 			
 			<nav class="tabs">
@@ -250,6 +256,12 @@ function attachEventListeners() {
 	const verifyOnChainBtn = document.querySelector('#verifyOnChain');
 	if (verifyOnChainBtn) {
 		verifyOnChainBtn.addEventListener('click', handleVerifyOnChain);
+	}
+	
+	// Logout button
+	const logoutBtn = document.querySelector('#logoutBtn');
+	if (logoutBtn) {
+		logoutBtn.addEventListener('click', handleLogout);
 	}
 }
 
@@ -617,4 +629,170 @@ async function handleVerifyOnChain() {
 }
 
 // Initialize app on load
-initApp();
+if (!authService.isAuthenticated()) {
+	renderAuthPage();
+} else {
+	initApp();
+}
+
+async function handleLogout() {
+	try {
+		await authService.logout();
+		renderAuthPage();
+	} catch (error) {
+		console.error('Logout error:', error);
+		// Clear tokens anyway
+		authService.clearTokens();
+		renderAuthPage();
+	}
+}
+
+// Auth pages
+function renderAuthPage() {
+	app.innerHTML = `
+		<div class="auth-container">
+			<div class="auth-box">
+				<header class="auth-header">
+					<h1>🗳️ Voter Portal</h1>
+					<p>Secure Zero-Knowledge Proof Voting System</p>
+				</header>
+				
+				<div class="auth-tabs">
+					<button class="auth-tab active" data-auth-tab="login">Login</button>
+					<button class="auth-tab" data-auth-tab="register">Sign Up</button>
+				</div>
+				
+				<div class="auth-content">
+					<div id="auth-login" class="auth-pane active">
+						${renderLoginForm()}
+					</div>
+					<div id="auth-register" class="auth-pane">
+						${renderRegisterForm()}
+					</div>
+				</div>
+			</div>
+		</div>
+	`;
+	
+	attachAuthListeners();
+}
+
+function renderLoginForm() {
+	return `
+		<form id="loginForm" class="auth-form">
+			<div class="form-group">
+				<label for="loginEmail">Email</label>
+				<input type="email" id="loginEmail" required placeholder="you@example.com" autocomplete="email" />
+			</div>
+			<div class="form-group">
+				<label for="loginPassword">Password</label>
+				<input type="password" id="loginPassword" required placeholder="••••••••" autocomplete="current-password" />
+			</div>
+			<button type="submit" class="btn btn-primary btn-block">Login</button>
+			<div id="loginError" class="error-message"></div>
+		</form>
+	`;
+}
+
+function renderRegisterForm() {
+	return `
+		<form id="registerForm" class="auth-form">
+			<div class="form-group">
+				<label for="registerEmail">Email</label>
+				<input type="email" id="registerEmail" required placeholder="you@example.com" autocomplete="email" />
+			</div>
+			<div class="form-group">
+				<label for="registerPassword">Password</label>
+				<input type="password" id="registerPassword" required placeholder="••••••••" minlength="6" autocomplete="new-password" />
+				<small>Minimum 6 characters</small>
+			</div>
+			<div class="form-group">
+				<label for="registerConfirmPassword">Confirm Password</label>
+				<input type="password" id="registerConfirmPassword" required placeholder="••••••••" minlength="6" autocomplete="new-password" />
+			</div>
+			<button type="submit" class="btn btn-primary btn-block">Create Account</button>
+			<div id="registerError" class="error-message"></div>
+		</form>
+	`;
+}
+
+function attachAuthListeners() {
+	// Tab switching
+	const authTabs = document.querySelectorAll('.auth-tab');
+	authTabs.forEach(tab => {
+		tab.addEventListener('click', () => {
+			const tabName = tab.getAttribute('data-auth-tab');
+			authTabs.forEach(t => t.classList.remove('active'));
+			tab.classList.add('active');
+			
+			document.querySelectorAll('.auth-pane').forEach(pane => pane.classList.remove('active'));
+			document.getElementById(`auth-${tabName}`)?.classList.add('active');
+		});
+	});
+	
+	// Login form
+	const loginForm = document.getElementById('loginForm') as HTMLFormElement;
+	loginForm?.addEventListener('submit', handleLogin);
+	
+	// Register form
+	const registerForm = document.getElementById('registerForm') as HTMLFormElement;
+	registerForm?.addEventListener('submit', handleRegister);
+}
+
+async function handleLogin(e: Event) {
+	e.preventDefault();
+	const form = e.target as HTMLFormElement;
+	const email = (form.querySelector('#loginEmail') as HTMLInputElement).value;
+	const password = (form.querySelector('#loginPassword') as HTMLInputElement).value;
+	const errorDiv = form.querySelector('#loginError') as HTMLDivElement;
+	const submitBtn = form.querySelector('button[type="submit"]') as HTMLButtonElement;
+	
+	errorDiv.textContent = '';
+	submitBtn.disabled = true;
+	submitBtn.textContent = 'Logging in...';
+	
+	try {
+		await authService.login(email, password);
+		// Redirect to main app
+		initApp();
+	} catch (error: any) {
+		errorDiv.textContent = error.response?.data?.message || 'Invalid email or password';
+		submitBtn.disabled = false;
+		submitBtn.textContent = 'Login';
+	}
+}
+
+async function handleRegister(e: Event) {
+	e.preventDefault();
+	const form = e.target as HTMLFormElement;
+	const email = (form.querySelector('#registerEmail') as HTMLInputElement).value;
+	const password = (form.querySelector('#registerPassword') as HTMLInputElement).value;
+	const confirmPassword = (form.querySelector('#registerConfirmPassword') as HTMLInputElement).value;
+	const errorDiv = form.querySelector('#registerError') as HTMLDivElement;
+	const submitBtn = form.querySelector('button[type="submit"]') as HTMLButtonElement;
+	
+	errorDiv.textContent = '';
+	
+	if (password !== confirmPassword) {
+		errorDiv.textContent = 'Passwords do not match';
+		return;
+	}
+	
+	if (password.length < 6) {
+		errorDiv.textContent = 'Password must be at least 6 characters';
+		return;
+	}
+	
+	submitBtn.disabled = true;
+	submitBtn.textContent = 'Creating account...';
+	
+	try {
+		await authService.register(email, password);
+		// Redirect to main app
+		initApp();
+	} catch (error: any) {
+		errorDiv.textContent = error.response?.data?.message || 'Registration failed. Email may already be in use.';
+		submitBtn.disabled = false;
+		submitBtn.textContent = 'Create Account';
+	}
+}

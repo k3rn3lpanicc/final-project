@@ -1,14 +1,14 @@
 import { Controller, Post, Body, HttpCode, HttpStatus } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
 import { AuthService } from './auth.service';
-import { LoginDto, RefreshTokenDto } from './dto/auth.dto';
+import { LoginDto, UserLoginDto, UserRegisterDto, RefreshTokenDto } from './dto/auth.dto';
 
 @ApiTags('Authentication')
 @Controller('auth')
 export class AuthController {
   constructor(private readonly authService: AuthService) {}
 
-  @Post('login')
+  @Post('admin/login')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Admin login' })
   @ApiResponse({
@@ -18,13 +18,55 @@ export class AuthController {
       example: {
         access_token: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...',
         refresh_token: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...',
-        expires_in: '15m'
+        expires_in: '15m',
+        role: 'admin'
       }
     }
   })
   @ApiResponse({ status: 401, description: 'Invalid credentials' })
-  async login(@Body() loginDto: LoginDto) {
+  async adminLogin(@Body() loginDto: LoginDto) {
     return this.authService.login(loginDto.username, loginDto.password);
+  }
+
+  @Post('user/register')
+  @HttpCode(HttpStatus.CREATED)
+  @ApiOperation({ summary: 'User registration' })
+  @ApiResponse({
+    status: 201,
+    description: 'Registration successful',
+    schema: {
+      example: {
+        access_token: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...',
+        refresh_token: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...',
+        expires_in: '15m',
+        role: 'user'
+      }
+    }
+  })
+  @ApiResponse({ status: 400, description: 'Invalid data or password too short' })
+  @ApiResponse({ status: 409, description: 'User already exists' })
+  async userRegister(@Body() registerDto: UserRegisterDto) {
+    return this.authService.userRegister(registerDto.email, registerDto.password);
+  }
+
+  @Post('user/login')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'User login' })
+  @ApiResponse({
+    status: 200,
+    description: 'Login successful',
+    schema: {
+      example: {
+        access_token: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...',
+        refresh_token: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...',
+        expires_in: '15m',
+        role: 'user'
+      }
+    }
+  })
+  @ApiResponse({ status: 401, description: 'Invalid credentials' })
+  async userLogin(@Body() loginDto: UserLoginDto) {
+    return this.authService.userLogin(loginDto.email, loginDto.password);
   }
 
   @Post('refresh')

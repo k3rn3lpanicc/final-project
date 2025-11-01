@@ -10,7 +10,7 @@ class AuthService {
   private static BASE_URL = 'http://localhost:3000';
 
   async login(username: string, password: string): Promise<AuthTokens> {
-    const response = await fetch(`${AuthService.BASE_URL}/auth/login`, {
+    const response = await fetch(`${AuthService.BASE_URL}/auth/admin/login`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
