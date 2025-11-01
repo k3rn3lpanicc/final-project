@@ -188,7 +188,7 @@ async function approveRequest(id: string) {
 	try {
 		await api.approveRequest(id);
 		showNotification('Request approved successfully!', 'success');
-		await loadRequests();
+		await loadRequests(true);
 	} catch (error) {
 		console.error('Error approving request:', error);
 		showNotification('Failed to approve request', 'error');
@@ -208,7 +208,7 @@ async function rejectRequest(id: string) {
 	try {
 		await api.rejectRequest(id);
 		showNotification('Request rejected', 'success');
-		await loadRequests();
+		await loadRequests(true);
 	} catch (error) {
 		console.error('Error rejecting request:', error);
 		showNotification('Failed to reject request', 'error');
