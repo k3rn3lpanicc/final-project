@@ -47,6 +47,8 @@ export class AdminService {
       secretX: req.secretX,
       secretXp: req.secretXp,
       createdAt: req.createdAt,
+      passportImagePath: req.passportImagePath,
+      photoImagePath: req.photoImagePath,
     }));
   }
 
@@ -77,7 +79,7 @@ export class AdminService {
       throw new NotFoundException('Request not found');
     }
 
-    return {
+    const result: any = {
       id: request.id,
       fullName: request.fullName,
       passportNumber: request.passportNumber,
@@ -93,6 +95,19 @@ export class AdminService {
       createdAt: request.createdAt,
       updatedAt: request.updatedAt,
     };
+
+    // Include signature data if approved
+    if (request.status === RequestStatus.APPROVED && request.signatureR8x) {
+      result.signature = {
+        signatureR8x: request.signatureR8x,
+        signatureR8y: request.signatureR8y,
+        signatureS: request.signatureS,
+        publicKeyX: request.publicKeyX,
+        publicKeyY: request.publicKeyY,
+      };
+    }
+
+    return result;
   }
 
   async approveRequest(id: string, adminNotes?: string): Promise<SignatureDataDto> {

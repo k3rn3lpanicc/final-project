@@ -6,8 +6,13 @@ import {
   Body,
   NotFoundException,
   BadRequestException,
+  Res,
+  StreamableFile,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBody } from '@nestjs/swagger';
+import { Response } from 'express';
+import { createReadStream, existsSync } from 'fs';
+import { join } from 'path';
 import { AdminService } from './admin.service';
 import { VoterRequestResponseDto, SignatureDataDto, AdminPublicKeyDto } from '../common/dto';
 
@@ -144,5 +149,41 @@ export class AdminController {
     @Body() body: { adminNotes?: string },
   ): Promise<{ message: string }> {
     return this.adminService.rejectRequest(id, body.adminNotes);
+  }
+
+  @Get('request/:id/image/:type')
+  @ApiOperation({
+    summary: 'Get voter image',
+    description: 'Retrieve passport or photo image for a specific voter request',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Image retrieved successfully',
+  })
+  @ApiResponse({
+    status: 404,
+    description: 'Request or image not found',
+  })
+  async getImage(
+    @Param('id') id: string,
+    @Param('type') type: 'passport' | 'photo',
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<StreamableFile> {
+    const request = await this.adminService.getRequestDetails(id);
+    
+    const imagePath = type === 'passport' ? request.passportImagePath : request.photoImagePath;
+    const fullPath = join(process.cwd(), imagePath);
+
+    if (!existsSync(fullPath)) {
+      throw new NotFoundException('Image file not found');
+    }
+
+    const file = createReadStream(fullPath);
+    res.set({
+      'Content-Type': 'image/jpeg',
+      'Content-Disposition': `inline; filename="${type}-${id}.jpg"`,
+    });
+
+    return new StreamableFile(file);
   }
 }
