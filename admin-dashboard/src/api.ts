@@ -48,7 +48,7 @@ export interface Request {
   status: 'pending' | 'approved' | 'rejected' | 'auto_rejected';
   voterId: string;
   secretX: string;
-  secretXp: string;
+  hashXp: string; // Hash of secretXp
   createdAt?: string;
   passportImagePath?: string;
   photoImagePath?: string;

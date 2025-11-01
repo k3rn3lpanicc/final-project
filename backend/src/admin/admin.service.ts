@@ -55,7 +55,7 @@ export class AdminService {
       status: req.status,
       voterId: req.voterId,
       secretX: req.secretX,
-      secretXp: req.secretXp,
+      hashXp: req.hashXp,
       createdAt: req.createdAt,
       passportImagePath: req.passportImagePath,
       photoImagePath: req.photoImagePath,
@@ -91,7 +91,7 @@ export class AdminService {
       status: req.status,
       voterId: req.voterId,
       secretX: req.secretX,
-      secretXp: req.secretXp,
+      hashXp: req.hashXp,
       createdAt: req.createdAt,
     }));
   }
@@ -112,7 +112,7 @@ export class AdminService {
       status: request.status,
       voterId: request.voterId,
       secretX: request.secretX,
-      secretXp: request.secretXp,
+      hashXp: request.hashXp,
       passportImagePath: request.passportImagePath,
       photoImagePath: request.photoImagePath,
       adminNotes: request.adminNotes,
@@ -150,7 +150,7 @@ export class AdminService {
       this.adminPrivateKey,
       BigInt(request.voterId),
       BigInt(request.secretX),
-      BigInt(request.secretXp),
+      BigInt(request.hashXp),
     );
 
     const publicKey = await this.cryptoService.getPublicKey(this.adminPrivateKey);
@@ -164,7 +164,7 @@ export class AdminService {
       signature.S,
       BigInt(request.voterId),
       BigInt(request.secretX),
-      BigInt(request.secretXp),
+      BigInt(request.hashXp),
     );
 
     if (!isValid) {

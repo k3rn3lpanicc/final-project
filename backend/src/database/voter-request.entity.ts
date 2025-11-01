@@ -37,7 +37,7 @@ export class VoterRequest {
   secretX: string; // BigInt as string
 
   @Column({ type: 'text' })
-  secretXp: string; // BigInt as string
+  hashXp: string; // Hash of secretXp (poseidon1([secretXp]))
 
   @Column({
     type: 'text',

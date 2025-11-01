@@ -8,10 +8,10 @@ export interface VoterRequest {
   passportNumber: string;
   dateOfBirth: string;
   nationality: string;
-  status: 'pending' | 'approved' | 'rejected';
+  status: 'pending' | 'approved' | 'rejected' | 'auto_rejected';
   voterId: string;
   secretX: string;
-  secretXp: string;
+  hashXp: string; // Hash of secretXp
   createdAt?: string;
 }
 

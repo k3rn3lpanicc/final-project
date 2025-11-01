@@ -41,7 +41,7 @@ export class VotersService {
       photoImagePath: photo.path,
       voterId: dto.voterId,
       secretX: dto.secretX,
-      secretXp: dto.secretXp,
+      hashXp: dto.hashXp,
       status: RequestStatus.PENDING,
     });
 
@@ -56,7 +56,7 @@ export class VotersService {
       status: saved.status,
       voterId: saved.voterId,
       secretX: saved.secretX,
-      secretXp: saved.secretXp,
+      hashXp: saved.hashXp,
       createdAt: saved.createdAt,
     };
   }
@@ -77,7 +77,7 @@ export class VotersService {
       status: request.status,
       voterId: request.voterId,
       secretX: request.secretX,
-      secretXp: request.secretXp,
+      hashXp: request.hashXp,
       createdAt: request.createdAt,
     };
   }

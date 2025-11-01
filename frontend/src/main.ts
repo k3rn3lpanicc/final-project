@@ -7,6 +7,7 @@ import {
 import { generateProof, verifyProof, parsePublicSignals, exportProof } from './proofGenerator';
 import { verifyProofOnChain, isMetaMaskInstalled, getVerifierContractAddress, getExplorerLink } from './blockchainVerifier';
 import { voterAPI, type VoterRequest, type SignatureData } from './api';
+import { poseidon1 } from 'poseidon-lite';
 
 // Circuit file paths
 const WASM_PATH = '/circuit/VoteScheme.wasm';
@@ -357,10 +358,11 @@ async function handleRegistrationSubmit(e: Event) {
 		const form = e.target as HTMLFormElement;
 		const formData = new FormData(form);
 		
-		// Add credentials to form data
+		// Add credentials to form data (send hash of Xp, not plain Xp)
+		const hashXp = poseidon1([currentCredentials.Xp]);
 		formData.append('voterId', currentCredentials.ID.toString());
 		formData.append('secretX', currentCredentials.X.toString());
-		formData.append('secretXp', currentCredentials.Xp.toString());
+		formData.append('hashXp', hashXp.toString());
 		
 		const response = await voterAPI.submitRegistration(formData);
 		

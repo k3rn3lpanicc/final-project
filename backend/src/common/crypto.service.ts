@@ -49,14 +49,14 @@ export class CryptoService {
     privateKeyHex: string,
     voterId: bigint,
     secretX: bigint,
-    secretXp: bigint,
+    hashXp: bigint,
   ): Promise<{
     R8x: string;
     R8y: string;
     S: string;
   }> {
     await this.init();
-    const hashXp = poseidon1([secretXp]);
+    // hashXp is already the hash of secretXp, use it directly
     const msgField = poseidon3([voterId, secretX, hashXp]);
 
     const msgBytes = this.toBytesLE32(msgField);
@@ -66,13 +66,12 @@ export class CryptoService {
     // signature.R8 is already [x, y] coordinates
     const F = this.babyjub.F;
 
-    // Convert S properly - it's a buffer/BigInt, convert to BigInt first
-    const S_bigint = BigInt(signature.S.toString());
-
+    // Convert to BigInt strings properly
+    // signature.S is a BigInt, not a Buffer
     return {
       R8x: F.toString(signature.R8[0]),
       R8y: F.toString(signature.R8[1]),
-      S: S_bigint.toString(),
+      S: signature.S.toString(),
     };
   }
 
@@ -93,17 +92,17 @@ export class CryptoService {
     S: string,
     voterId: bigint,
     secretX: bigint,
-    secretXp: bigint,
+    hashXp: bigint,
   ): Promise<boolean> {
     await this.init();
     try {
-      const hashXp = poseidon1([secretXp]);
+      // hashXp is already the hash of secretXp, use it directly
       const msgField = poseidon3([voterId, secretX, hashXp]);
       const msgBytes = this.toBytesLE32(msgField);
 
       const F = this.babyjub.F;
       
-      // Convert BigInt strings to field elements
+      // Convert string values to field elements properly
       const pubKey = [F.e(publicKeyX), F.e(publicKeyY)];
       const signature = {
         R8: [F.e(R8x), F.e(R8y)],
