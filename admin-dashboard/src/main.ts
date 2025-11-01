@@ -6,16 +6,26 @@ let itemsPerPage: number = 10;
 let totalPages: number = 1;
 let currentFilter: string = 'all';
 
-async function loadRequests() {
+async function loadRequests(preserveScroll: boolean = false) {
 	try {
+		const scrollPosition = preserveScroll ? window.scrollY : 0;
 		const requestsContainer = document.getElementById('requests-container')!;
-		requestsContainer.innerHTML = '<p class="loading">Loading requests...</p>';
+		
+		// Don't show loading message on auto-refresh to avoid UI flicker
+		if (!preserveScroll) {
+			requestsContainer.innerHTML = '<p class="loading">Loading requests...</p>';
+		}
 
 		const statusFilter = currentFilter === 'all' ? undefined : currentFilter;
 		const response: PaginatedResponse<Request> = await api.getAllRequests(currentPage, itemsPerPage, statusFilter);
 		
 		await updateStats();
 		renderRequests(response);
+		
+		// Restore scroll position if preserving
+		if (preserveScroll) {
+			window.scrollTo(0, scrollPosition);
+		}
 	} catch (error) {
 		console.error('Error loading requests:', error);
 		const requestsContainer = document.getElementById('requests-container')!;
@@ -459,8 +469,8 @@ document.addEventListener('click', () => {
 (window as any).toggleActionMenu = toggleActionMenu;
 (window as any).goToPage = goToPage;
 
-// Auto-refresh every 30 seconds
-setInterval(loadRequests, 30000);
+// Auto-refresh every 30 seconds, preserving scroll position
+setInterval(() => loadRequests(true), 30000);
 
 // Initial load
 loadRequests();
