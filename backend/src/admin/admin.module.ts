@@ -1,0 +1,12 @@
+import { Module } from '@nestjs/common';
+import { TypeOrmModule } from '@nestjs/typeorm';
+import { AdminController } from './admin.controller';
+import { AdminService } from './admin.service';
+import { VoterRequest } from '../database/voter-request.entity';
+
+@Module({
+  imports: [TypeOrmModule.forFeature([VoterRequest])],
+  controllers: [AdminController],
+  providers: [AdminService],
+})
+export class AdminModule {}
