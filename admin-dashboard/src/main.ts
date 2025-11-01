@@ -63,7 +63,7 @@ function renderRequests(response: PaginatedResponse<Request>) {
 			.map(
 				(request) => `
           <tr data-id="${request.id}">
-            <td><span class="truncated-id">${request.id.substring(0, 8)}...</span></td>
+            <td><span class="truncated-id" data-full-id="${request.id}" title="${request.id}">${request.id.substring(0, 8)}...</span></td>
             <td>${request.fullName}</td>
             <td>${new Date(request.dateOfBirth).toLocaleDateString()}</td>
             <td>${request.nationality}</td>
@@ -138,6 +138,17 @@ function renderRequests(response: PaginatedResponse<Request>) {
 				case 'viewSignature':
 					await viewSignature(requestId);
 					break;
+			}
+		});
+	});
+
+	// Add event listeners to truncated IDs for clipboard copy
+	document.querySelectorAll('.truncated-id').forEach((elem) => {
+		elem.addEventListener('click', (e) => {
+			const fullId = (e.target as HTMLElement).getAttribute('data-full-id');
+			if (fullId) {
+				navigator.clipboard.writeText(fullId);
+				showNotification('Request ID copied to clipboard!', 'success');
 			}
 		});
 	});

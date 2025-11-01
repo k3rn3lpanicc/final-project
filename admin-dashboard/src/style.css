@@ -159,6 +159,16 @@ header p {
   font-family: monospace;
   font-size: 0.9em;
   color: var(--text-secondary);
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 4px;
+  transition: all 0.2s;
+}
+
+.truncated-id:hover {
+  background-color: var(--primary-color);
+  color: white;
+  transform: translateY(-1px);
 }
 
 .action-menu-container {
