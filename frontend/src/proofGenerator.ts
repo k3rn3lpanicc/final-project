@@ -12,7 +12,7 @@ export interface Proof {
 
 export interface PublicSignals {
   valid: string;
-  nh: string;
+  nullifier: string;
   electionId: string;
   A: string[];
 }
@@ -76,7 +76,7 @@ export async function verifyProof(
 export function parsePublicSignals(publicSignals: string[]): PublicSignals {
   return {
     valid: publicSignals[0],
-    nh: publicSignals[1],
+    nullifier: publicSignals[1],
     electionId: publicSignals[2],
     A: publicSignals.slice(3, 259), // 256 bits
   };

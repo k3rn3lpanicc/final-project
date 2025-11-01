@@ -26,15 +26,21 @@ body {
 }
 
 #app {
-  max-width: 1200px;
+  max-width: 1400px;
   margin: 0 auto;
   padding: 2rem;
   width: 100%;
 }
 
+.container {
+  display: flex;
+  flex-direction: column;
+  gap: 2rem;
+}
+
 header {
   text-align: center;
-  margin-bottom: 3rem;
+  margin-bottom: 2rem;
   padding-bottom: 2rem;
   border-bottom: 2px solid #646cff;
 }
@@ -48,55 +54,359 @@ header h1 {
   background-clip: text;
 }
 
-.subtitle {
+header p {
   color: #888;
   font-size: 1.1rem;
 }
 
-.demo-steps {
+/* Tabs */
+.tabs {
   display: flex;
-  flex-direction: column;
-  gap: 2rem;
-  margin-bottom: 3rem;
+  gap: 1rem;
+  margin-bottom: 2rem;
+  border-bottom: 2px solid #333;
 }
 
-.step {
+.tab {
+  background: none;
+  border: none;
+  color: #888;
+  padding: 1rem 2rem;
+  font-size: 1.1rem;
+  cursor: pointer;
+  border-bottom: 3px solid transparent;
+  transition: all 0.3s ease;
+}
+
+.tab:hover {
+  color: #646cff;
+}
+
+.tab.active {
+  color: #646cff;
+  border-bottom-color: #646cff;
+}
+
+.tab-content {
+  min-height: 500px;
+}
+
+.tab-pane {
+  display: none;
+}
+
+.tab-pane.active {
+  display: block;
+}
+
+/* Sections */
+.section {
   background: #1a1a1a;
   border: 1px solid #333;
   border-radius: 12px;
   padding: 2rem;
+  margin-bottom: 2rem;
 }
 
-.step h2 {
+.section h2 {
   color: #646cff;
   margin-bottom: 1rem;
   font-size: 1.5rem;
 }
 
-.primary-btn {
-  background: #646cff;
+.section p {
+  margin-bottom: 1rem;
+  color: #aaa;
+}
+
+/* Forms */
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.form-group label {
+  color: #aaa;
+  font-weight: 500;
+}
+
+.form-group input,
+.form-group select {
+  padding: 0.75rem;
+  border: 1px solid #444;
+  border-radius: 8px;
+  background: #2a2a2a;
   color: white;
+  font-size: 1rem;
+}
+
+.form-group input:focus,
+.form-group select:focus {
+  outline: none;
+  border-color: #646cff;
+}
+
+/* Buttons */
+.btn {
   border: none;
-  padding: 1rem 2rem;
-  font-size: 1.1rem;
+  padding: 0.75rem 1.5rem;
+  font-size: 1rem;
   border-radius: 8px;
   cursor: pointer;
   transition: all 0.3s ease;
   font-weight: 600;
-  width: 100%;
-  margin-bottom: 1rem;
 }
 
-.primary-btn:hover:not(:disabled) {
+.btn-primary {
+  background: #646cff;
+  color: white;
+}
+
+.btn-primary:hover:not(:disabled) {
   background: #535bf2;
   transform: translateY(-2px);
   box-shadow: 0 4px 12px rgba(100, 108, 255, 0.4);
 }
 
-.primary-btn:disabled {
+.btn-secondary {
+  background: #444;
+  color: white;
+}
+
+.btn-secondary:hover:not(:disabled) {
+  background: #555;
+}
+
+.btn-success {
+  background: #4caf50;
+  color: white;
+}
+
+.btn-success:hover:not(:disabled) {
+  background: #45a049;
+  box-shadow: 0 4px 12px rgba(76, 175, 80, 0.4);
+}
+
+.btn:disabled {
   background: #333;
   cursor: not-allowed;
   opacity: 0.5;
+}
+
+/* Info boxes */
+.info-box {
+  background: #2a2a2a;
+  border: 1px solid #444;
+  border-radius: 8px;
+  padding: 1.5rem;
+  margin-top: 1rem;
+}
+
+.info-box h3,
+.info-box h4 {
+  color: #646cff;
+  margin-bottom: 1rem;
+}
+
+.credential-item {
+  margin-bottom: 1rem;
+}
+
+.credential-item strong {
+  color: #aaa;
+  display: block;
+  margin-bottom: 0.5rem;
+}
+
+.credential-item .value {
+  background: #1a1a1a;
+  padding: 0.75rem;
+  border-radius: 4px;
+  font-family: 'Courier New', monospace;
+  font-size: 0.9rem;
+  word-break: break-all;
+  color: #4caf50;
+}
+
+.note {
+  color: #888;
+  font-size: 0.9rem;
+  font-style: italic;
+  margin-top: 1rem;
+}
+
+/* Request cards */
+.header-actions {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1.5rem;
+}
+
+.requests-list {
+  display: grid;
+  gap: 1.5rem;
+}
+
+.request-card {
+  background: #2a2a2a;
+  border: 1px solid #444;
+  border-radius: 8px;
+  padding: 1.5rem;
+  transition: all 0.3s ease;
+}
+
+.request-card:hover {
+  border-color: #646cff;
+  transform: translateY(-2px);
+}
+
+.request-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1rem;
+  padding-bottom: 1rem;
+  border-bottom: 1px solid #444;
+}
+
+.request-id {
+  font-family: 'Courier New', monospace;
+  color: #888;
+  font-size: 0.9rem;
+}
+
+.status-badge {
+  padding: 0.5rem 1rem;
+  border-radius: 20px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.status-pending {
+  background: #fff3cd;
+  color: #856404;
+}
+
+.status-approved {
+  background: #d4edda;
+  color: #155724;
+}
+
+.status-rejected {
+  background: #f8d7da;
+  color: #721c24;
+}
+
+.request-body p {
+  margin-bottom: 0.5rem;
+  color: #aaa;
+}
+
+.request-body strong {
+  color: white;
+}
+
+.request-actions {
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid #444;
+}
+
+.pending-message,
+.rejected-message {
+  text-align: center;
+  padding: 0.75rem;
+  border-radius: 4px;
+  font-weight: 500;
+}
+
+.pending-message {
+  background: #fff3cd;
+  color: #856404;
+}
+
+.rejected-message {
+  background: #f8d7da;
+  color: #721c24;
+}
+
+/* Empty state */
+.empty-state {
+  text-align: center;
+  padding: 4rem 2rem;
+  color: #888;
+}
+
+.empty-state p {
+  font-size: 1.1rem;
+  margin-bottom: 1rem;
+}
+
+/* Log */
+.log {
+  background: #1a1a1a;
+  border: 1px solid #333;
+  border-radius: 8px;
+  padding: 1rem;
+  max-height: 300px;
+  overflow-y: auto;
+  font-family: 'Courier New', monospace;
+  font-size: 0.9rem;
+}
+
+.log-entry {
+  padding: 0.5rem;
+  margin-bottom: 0.25rem;
+  border-radius: 4px;
+}
+
+.log-info {
+  color: #aaa;
+}
+
+.log-success {
+  color: #4caf50;
+  background: rgba(76, 175, 80, 0.1);
+}
+
+.log-error {
+  color: #f44336;
+  background: rgba(244, 67, 54, 0.1);
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  #app {
+    padding: 1rem;
+  }
+
+  header h1 {
+    font-size: 2rem;
+  }
+
+  .tabs {
+    flex-direction: column;
+    gap: 0;
+  }
+
+  .tab {
+    border-bottom: 1px solid #444;
+    border-left: 3px solid transparent;
+  }
+
+  .tab.active {
+    border-bottom-color: #444;
+    border-left-color: #646cff;
+  }
 }
 
 .secondary-btn {

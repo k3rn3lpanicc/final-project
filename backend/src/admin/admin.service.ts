@@ -35,7 +35,7 @@ export class AdminService {
     const skip = (page - 1) * limit;
     
     const whereCondition: any = {};
-    if (status && ['pending', 'approved', 'rejected'].includes(status)) {
+    if (status && ['pending', 'approved', 'rejected', 'auto_rejected'].includes(status)) {
       whereCondition.status = status as RequestStatus;
     }
 
@@ -155,6 +155,24 @@ export class AdminService {
 
     const publicKey = await this.cryptoService.getPublicKey(this.adminPrivateKey);
 
+    // Verify signature before saving
+    const isValid = await this.cryptoService.verifySignature(
+      publicKey.x,
+      publicKey.y,
+      signature.R8x,
+      signature.R8y,
+      signature.S,
+      BigInt(request.voterId),
+      BigInt(request.secretX),
+      BigInt(request.secretXp),
+    );
+
+    if (!isValid) {
+      throw new Error('Generated signature verification failed');
+    }
+
+    console.log('✅ Signature verified successfully before saving');
+
     // Update request
     request.status = RequestStatus.APPROVED;
     request.signatureR8x = signature.R8x;
@@ -165,6 +183,16 @@ export class AdminService {
     request.adminNotes = adminNotes || null;
 
     await this.voterRequestRepository.save(request);
+
+    // Auto-reject all other pending requests with the same passport number (except this one)
+    await this.voterRequestRepository
+      .createQueryBuilder()
+      .update(VoterRequest)
+      .set({ status: RequestStatus.AUTO_REJECTED })
+      .where('passportNumber = :passportNumber', { passportNumber: request.passportNumber })
+      .andWhere('status = :status', { status: RequestStatus.PENDING })
+      .andWhere('id != :id', { id: request.id })
+      .execute();
 
     return {
       signatureR8x: signature.R8x,

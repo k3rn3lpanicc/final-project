@@ -1,0 +1,64 @@
+1. If you have completed an undergraduate and/or Master's thesis, please give the thesis area and title. Provide a copy of the abstract if at all possible
+
+Area: Cryptography, Zero-knowledge proofs, e-Voting, Privacy, Blockchains
+
+Title of the thesis: Design and Implementation of a Blockchain-Based Voting Platform with User Privacy Preservation Using Zero-Knowledge Proofs
+
+
+-----------------------------
+2. List below any academic awards, achievements, honours or other distinctions you have received.
+
+Winner, Nobitex Blockchain Hackathon (2023) - Led a team to find innovative solutions for blockchain storage scalability, won the 1st place.
+
+Co-Founder and Lecturer, EMIT (2024) - Organized Iran’s first student-led blockchain event; delivered lectures on blockchain and cryptography, and created a competitive blockchain challenge.
+
+Teaching Assistant (2023–2024) – Assisted in undergraduate courses Microprocessors and Assembly, Embedded and Real-Time Systems, Software Engineering and Computational Intelligence; created instructional materials and evaluated student projects.
+
+-----------------------------
+3. List any publications you have authored or co-authored related to your proposed field of study.
+
+Although my current field of research is provable security and privacy-preserving cryptography, I previously worked in artificial intelligence, resulting in three publications in peer-reviewed journals. These works focused on applying AI to medical diagnosis tasks.
+
+Publications:
+
+1. Allahqoli, L., Laganà, A. S., Mazidimoradi, A., Ghiyasvand, M. M., et al. (2022). Diagnosis of cervical cancer and pre-cancerous lesions by artificial intelligence: A systematic review. Diagnostics, 12(11), 2771. doi:10.3390/diagnostics12112771
+
+2. Allahqoli, L., Ghiyasvand, M. M., Mazidimoradi, A., Salehiniya, H., Alkatout, I. (2023). Diagnostic and management performance of ChatGPT in obstetrics and gynecology. Gynecologic and Obstetric Investigation, 88(5), 310–313. doi:10.1159/000533177
+
+3. Diagnostic Accuracy of Ovarian Cancer using Convolutional Neural Network: A Systematic Review and Meta-Analysis. BMC Medical Informatics and Decision Making, under revision (2025).
+
+----------------------------
+4. List your previous experience (e.g. employment) you have had directly related to Computer Science.
+
+* Lead Blockchain & Backend Developer, Droplinked (Remote, Los Angeles, CA) — Sep 2022 – Sep 2025
+  * Developed and deployed smart contracts on 10+ blockchain networks.
+  * Implemented 50+ backend APIs for blockchain operations and ZKP-based validation.
+  * Built reusable Web3 integration libraries and mentored new developers.
+
+* AI Developer Intern, Roshan-AI (Tehran, Iran) — Feb 2022 – May 2022
+  * Designed and trained ML/DL models for Persian newspaper headline detection (97.4% accuracy).
+  * Conducted data annotation, feature engineering, and model evaluation.
+  
+----------------------------
+5. Have you made arrangements to work with a professor in Computer Science? Please indicate yes or no. If yes, please indicate with whom the arrangement has been made with.  
+  
+  Yes. 
+  Professor Reihaneh Safavi-Naini.
+  I have communicated with Professor Reihaneh Safavi-Naini regarding her research directions in cryptography and provable security. We discussed her ongoing projects and areas of mutual interest, and she expressed openness to supervising my graduate research.
+----------------------------
+9. List any scholarships you have been awarded or have applied for to support your graduate program. Indicate the dollar amount and duration of the support, and when it is to start.
+  
+  I have not applied for any external scholarships at this time.
+  
+----------------------------
+
+11. Please add any other information you feel is important to the Admissions Committee in evaluating your application to the Faculty of Graduate Studies. If you feel that your credentials and the other information you have already provided on this form or will be submitting to the graduate program in support of your application represents you fairly, you should feel no obligation to write anything further here.
+
+My academic and professional path has focused on creating secure digital systems. In my bachelor’s thesis, I examined how blockchain and cryptography can enhance user privacy in digital voting, which deepened my interest in security research. Currently, I’m studying blockchain scalability, aiming to ensure decentralized systems remain efficient and reliable as they expand.
+Beyond research, I have been deeply involved in academic and community initiatives. As a co-founder of EMIT, the first student-led blockchain event in Iran, I organized workshops and lectures to make advanced technologies more accessible to students. My teaching assistant experience has also helped me strengthen my communication, mentorship, and teamwork skills.
+These experiences have guided me toward a clear research vision: developing cryptographic foundations that make decentralized systems more secure, scalable, and privacy-preserving. I am eager to pursue this goal within the University of Calgary’s MSc program under the supervision of Professor Reihaneh Safavi-Naini, whose work in provable security directly aligns with my interests and long-term research objectives.
+
+Link to my CV: https://github.com/k3rn3lpanicc/CV/raw/main/CV.pdf
+Link to my SOP: https://github.com/k3rn3lpanicc/CV/raw/main/SOP.pdf
+
+

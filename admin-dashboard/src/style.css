@@ -337,6 +337,11 @@ header p {
   color: #721c24;
 }
 
+.status-badge.auto_rejected {
+  background: #e2e3e5;
+  color: #383d41;
+}
+
 .request-field {
   margin-bottom: 10px;
 }

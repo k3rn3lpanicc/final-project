@@ -45,7 +45,7 @@ export interface Request {
   passportNumber: string;
   dateOfBirth: string;
   nationality: string;
-  status: 'pending' | 'approved' | 'rejected';
+  status: 'pending' | 'approved' | 'rejected' | 'auto_rejected';
   voterId: string;
   secretX: string;
   secretXp: string;
@@ -78,6 +78,7 @@ export interface Stats {
   pending: number;
   approved: number;
   rejected: number;
+  auto_rejected: number;
 }
 
 export const api = {
@@ -117,11 +118,19 @@ export const api = {
       pending: requests.filter((r: Request) => r.status === 'pending').length,
       approved: requests.filter((r: Request) => r.status === 'approved').length,
       rejected: requests.filter((r: Request) => r.status === 'rejected').length,
+      auto_rejected: requests.filter((r: Request) => r.status === 'auto_rejected').length,
     };
   },
 
   getImageUrl(requestId: string, type: 'passport' | 'photo'): string {
-    const token = authService.getAccessToken();
-    return `${API_BASE_URL}/admin/request/${requestId}/image/${type}?token=${token}`;
+    // Return a data URL that will be fetched with proper auth headers
+    return `${API_BASE_URL}/admin/request/${requestId}/image/${type}`;
+  },
+  
+  async getImageBlob(requestId: string, type: 'passport' | 'photo'): Promise<string> {
+    const response = await axios.get(`${API_BASE_URL}/admin/request/${requestId}/image/${type}`, {
+      responseType: 'blob'
+    });
+    return URL.createObjectURL(response.data);
   }
 };

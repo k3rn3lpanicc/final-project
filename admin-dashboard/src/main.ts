@@ -74,6 +74,7 @@ async function updateStats() {
 		document.getElementById('pending-count')!.textContent = stats.pending.toString();
 		document.getElementById('approved-count')!.textContent = stats.approved.toString();
 		document.getElementById('rejected-count')!.textContent = stats.rejected.toString();
+		document.getElementById('auto-rejected-count')!.textContent = stats.auto_rejected.toString();
 	} catch (error) {
 		console.error('Error updating stats:', error);
 	}
@@ -112,7 +113,7 @@ function renderRequests(response: PaginatedResponse<Request>) {
             <td>${new Date(request.dateOfBirth).toLocaleDateString()}</td>
             <td>${request.nationality}</td>
             <td>${request.passportNumber}</td>
-            <td><span class="status-badge ${request.status}">${request.status}</span></td>
+            <td><span class="status-badge ${request.status}">${request.status === 'auto_rejected' ? 'auto rejected' : request.status}</span></td>
             <td>
               <div class="action-menu-container">
                 <button class="btn-menu" data-request-id="${request.id}">
@@ -272,7 +273,7 @@ async function viewDetails(id: string) {
           
           <div class="request-field">
             <label>Status</label>
-            <p><span class="status-badge ${request.status}">${request.status}</span></p>
+            <p><span class="status-badge ${request.status}">${request.status === 'auto_rejected' ? 'auto rejected' : request.status}</span></p>
           </div>
         </div>
         
@@ -287,13 +288,7 @@ async function viewDetails(id: string) {
 					? `
             <div class="document-modal-item">
               <label>Passport</label>
-              <img src="${api.getImageUrl(
-					request.id,
-					'passport'
-				)}" alt="Passport" onclick="window.open('${api.getImageUrl(
-							request.id,
-							'passport'
-					  )}', '_blank')" />
+              <img data-image-id="${request.id}" data-image-type="passport" alt="Passport" style="cursor: pointer;" />
             </div>
             `
 					: ''
@@ -303,13 +298,7 @@ async function viewDetails(id: string) {
 					? `
             <div class="document-modal-item">
               <label>Personal Photo</label>
-              <img src="${api.getImageUrl(
-					request.id,
-					'photo'
-				)}" alt="Personal Photo" onclick="window.open('${api.getImageUrl(
-							request.id,
-							'photo'
-					  )}', '_blank')" />
+              <img data-image-id="${request.id}" data-image-type="photo" alt="Personal Photo" style="cursor: pointer;" />
             </div>
             `
 					: ''
@@ -322,6 +311,23 @@ async function viewDetails(id: string) {
       </div>
     `;
 		document.body.appendChild(modal);
+		
+		// Load images with authentication
+		const images = modal.querySelectorAll('img[data-image-id]');
+		for (const img of Array.from(images)) {
+			const imageId = img.getAttribute('data-image-id');
+			const imageType = img.getAttribute('data-image-type') as 'passport' | 'photo';
+			if (imageId && imageType) {
+				try {
+					const blobUrl = await api.getImageBlob(imageId, imageType);
+					(img as HTMLImageElement).src = blobUrl;
+					img.addEventListener('click', () => window.open(blobUrl, '_blank'));
+				} catch (error) {
+					console.error(`Error loading ${imageType} image:`, error);
+					(img as HTMLImageElement).alt = `Failed to load ${imageType}`;
+				}
+			}
+		}
 		
 		// Add close handlers
 		setupModalCloseHandlers(modal);

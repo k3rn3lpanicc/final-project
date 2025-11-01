@@ -19,11 +19,19 @@ export class VotersService {
     passportImage: Multer.File,
     photo: Multer.File,
   ): Promise<VoterRequestResponseDto> {
-    // Generate random credentials for the voter
-    const voterId = this.cryptoService.generateRandomBigInt();
-    const secretX = this.cryptoService.generateRandomBigInt();
-    const secretXp = this.cryptoService.generateRandomBigInt();
+    // Check if an approved request already exists for this passport number
+    const existingApprovedRequest = await this.voterRequestRepository.findOne({
+      where: {
+        passportNumber: dto.passportNumber,
+        status: RequestStatus.APPROVED,
+      },
+    });
 
+    if (existingApprovedRequest) {
+      throw new BadRequestException('A request with this passport number has already been approved');
+    }
+
+    // Use credentials provided by the frontend
     const request = this.voterRequestRepository.create({
       fullName: dto.fullName,
       passportNumber: dto.passportNumber,
@@ -31,9 +39,9 @@ export class VotersService {
       nationality: dto.nationality,
       passportImagePath: passportImage.path,
       photoImagePath: photo.path,
-      voterId: voterId.toString(),
-      secretX: secretX.toString(),
-      secretXp: secretXp.toString(),
+      voterId: dto.voterId,
+      secretX: dto.secretX,
+      secretXp: dto.secretXp,
       status: RequestStatus.PENDING,
     });
 

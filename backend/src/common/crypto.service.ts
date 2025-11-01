@@ -38,9 +38,10 @@ export class CryptoService {
     await this.init();
     const privKey = Buffer.from(privateKeyHex, 'hex');
     const pubKey = this.eddsa.prv2pub(privKey);
+    const F = this.babyjub.F;
     return {
-      x: pubKey[0].toString(),
-      y: pubKey[1].toString(),
+      x: F.toString(pubKey[0]),
+      y: F.toString(pubKey[1]),
     };
   }
 
@@ -62,10 +63,16 @@ export class CryptoService {
     const privKey = Buffer.from(privateKeyHex, 'hex');
     const signature = this.eddsa.signPedersen(privKey, msgBytes);
 
+    // signature.R8 is already [x, y] coordinates
+    const F = this.babyjub.F;
+
+    // Convert S properly - it's a buffer/BigInt, convert to BigInt first
+    const S_bigint = BigInt(signature.S.toString());
+
     return {
-      R8x: signature.R8[0].toString(),
-      R8y: signature.R8[1].toString(),
-      S: signature.S.toString(),
+      R8x: F.toString(signature.R8[0]),
+      R8y: F.toString(signature.R8[1]),
+      S: S_bigint.toString(),
     };
   }
 
@@ -94,9 +101,12 @@ export class CryptoService {
       const msgField = poseidon3([voterId, secretX, hashXp]);
       const msgBytes = this.toBytesLE32(msgField);
 
-      const pubKey = [BigInt(publicKeyX), BigInt(publicKeyY)];
+      const F = this.babyjub.F;
+      
+      // Convert BigInt strings to field elements
+      const pubKey = [F.e(publicKeyX), F.e(publicKeyY)];
       const signature = {
-        R8: [BigInt(R8x), BigInt(R8y)],
+        R8: [F.e(R8x), F.e(R8y)],
         S: BigInt(S),
       };
 

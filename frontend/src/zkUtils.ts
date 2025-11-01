@@ -54,8 +54,51 @@ export interface CircuitInput {
   S: number[];
 }
 
-// Generate vote input for the circuit
+export interface SignatureData {
+  R8x: bigint;
+  R8y: bigint;
+  S: bigint;
+  Ax: bigint;
+  Ay: bigint;
+}
+
+// Generate vote input for the circuit (with signature from backend)
 export async function generateVoteInput(
+  credentials: VoteCredentials,
+  electionId: bigint,
+  signatureData: SignatureData
+): Promise<CircuitInput> {
+  const babyjub = await buildBabyjub();
+
+  const { ID, X, Xp } = credentials;
+  const { R8x, R8y, S, Ax, Ay } = signatureData;
+
+  // Compute nullifier
+  const nullifier = poseidon3([X, Xp, electionId]);
+
+  // Convert signature components to points
+  const issuerPubKey = [babyjub.F.e(Ax), babyjub.F.e(Ay)];
+  const R8 = [babyjub.F.e(R8x), babyjub.F.e(R8y)];
+
+  // Convert to circuit input format (bits)
+  const A_bits = bytesToBitsLE(babyjub.packPoint(issuerPubKey));
+  const R8_bits = bytesToBitsLE(babyjub.packPoint(R8));
+  const S_bits = bytesToBitsLE(toBytesLE32(S));
+
+  return {
+    nh: nullifier.toString(),
+    electionId: electionId.toString(),
+    A: A_bits,
+    ID: ID.toString(),
+    X: X.toString(),
+    Xp: Xp.toString(),
+    R8: R8_bits,
+    S: S_bits,
+  };
+}
+
+// Generate vote input for the circuit (with private key - for demo/testing only)
+export async function generateVoteInputWithPrivateKey(
   credentials: VoteCredentials,
   electionId: bigint,
   issuerPrivateKey: Uint8Array
@@ -99,11 +142,9 @@ export async function generateVoteInput(
 // Verify signature locally (before generating proof)
 export async function verifySignature(
   credentials: VoteCredentials,
-  electionId: bigint,
   issuerPrivateKey: Uint8Array
 ): Promise<boolean> {
   const eddsa = await buildEddsa();
-  const babyjub = await buildBabyjub();
 
   const { ID, X, Xp } = credentials;
 

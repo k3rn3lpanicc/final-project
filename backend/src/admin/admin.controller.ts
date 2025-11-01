@@ -47,7 +47,7 @@ export class AdminController {
   })
   @ApiQuery({ name: 'page', required: false, type: Number, example: 1, description: 'Page number (starts from 1)' })
   @ApiQuery({ name: 'limit', required: false, type: Number, example: 10, description: 'Number of items per page' })
-  @ApiQuery({ name: 'status', required: false, enum: ['pending', 'approved', 'rejected'], description: 'Filter by status' })
+  @ApiQuery({ name: 'status', required: false, enum: ['pending', 'approved', 'rejected', 'auto_rejected'], description: 'Filter by status' })
   @ApiResponse({
     status: 200,
     description: 'Paginated list of requests',

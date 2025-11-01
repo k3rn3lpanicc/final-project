@@ -4,6 +4,7 @@ export enum RequestStatus {
   PENDING = 'pending',
   APPROVED = 'approved',
   REJECTED = 'rejected',
+  AUTO_REJECTED = 'auto_rejected',
 }
 
 @Entity('voter_requests')

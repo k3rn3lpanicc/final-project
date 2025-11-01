@@ -4,46 +4,10 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>zkSNARK Voting Demo</title>
+    <title>Voter Dashboard - zkSNARK Voting</title>
   </head>
   <body>
-    <div id="app">
-      <header>
-        <h1>🗳️ zkSNARK Anonymous Voting</h1>
-        <p class="subtitle">Generate and verify zero-knowledge proofs in your browser</p>
-      </header>
-
-      <main>
-        <div class="demo-steps">
-          <div class="step">
-            <h2>Step 1: Generate Credentials</h2>
-            <button id="generateCred" class="primary-btn">1. Generate Voter Credentials</button>
-            <div id="credentials" class="output-box"></div>
-          </div>
-
-          <div class="step">
-            <h2>Step 2: Generate Proof</h2>
-            <button id="generateProof" class="primary-btn" disabled>2. Generate zkSNARK Proof</button>
-            <div id="proofOutput" class="output-box"></div>
-          </div>
-
-          <div class="step">
-            <h2>Step 3: Verify Proof</h2>
-            <button id="verifyProof" class="primary-btn" disabled>3. Verify Proof (Local)</button>
-            <button id="verifyOnChain" class="secondary-btn" disabled>4. Verify Proof (On-Chain)</button>
-          </div>
-        </div>
-
-        <div class="log-section">
-          <h3>📝 Activity Log</h3>
-          <div id="log" class="log-container"></div>
-        </div>
-      </main>
-
-      <footer>
-        <p>Built with Circom, snarkjs, and poseidon-lite</p>
-      </footer>
-    </div>
+    <div id="app"></div>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>
