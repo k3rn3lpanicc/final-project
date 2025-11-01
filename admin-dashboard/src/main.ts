@@ -517,7 +517,34 @@ function toggleActionMenu(event: Event, requestId: string) {
 
 	// Toggle current menu
 	const menu = document.getElementById(`menu-${requestId}`);
-	menu?.classList.toggle('active');
+	if (!menu) return;
+	
+	const isOpening = !menu.classList.contains('active');
+	menu.classList.toggle('active');
+	
+	// Position menu near button
+	if (isOpening) {
+		const button = event.target as HTMLElement;
+		const buttonRect = button.getBoundingClientRect();
+		
+		// Position menu below button by default
+		menu.style.top = `${buttonRect.bottom + 5}px`;
+		menu.style.left = `${buttonRect.right - 200}px`; // Align right edge with button
+		
+		// Check if menu goes below viewport
+		requestAnimationFrame(() => {
+			const menuRect = menu.getBoundingClientRect();
+			if (menuRect.bottom > window.innerHeight) {
+				// Position above button instead
+				menu.style.top = `${buttonRect.top - menuRect.height - 5}px`;
+			}
+			
+			// Check if menu goes off-screen to the left
+			if (menuRect.left < 0) {
+				menu.style.left = '10px';
+			}
+		});
+	}
 }
 
 // Close menus when clicking outside

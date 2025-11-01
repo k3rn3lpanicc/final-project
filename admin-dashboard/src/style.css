@@ -81,6 +81,7 @@ header p {
   padding: 30px;
   border-radius: 10px;
   box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+  overflow: visible;
 }
 
 #requests h2 {
@@ -119,12 +120,14 @@ header p {
 
 #requests-container {
   overflow-x: auto;
+  overflow-y: visible;
 }
 
 .requests-table {
   width: 100%;
   border-collapse: collapse;
   background: white;
+  overflow: visible;
 }
 
 .requests-table thead {
@@ -144,6 +147,7 @@ header p {
 .requests-table tbody tr {
   border-bottom: 1px solid var(--border);
   transition: background-color 0.2s;
+  position: relative;
 }
 
 .requests-table tbody tr:hover {
@@ -153,6 +157,7 @@ header p {
 .requests-table td {
   padding: 15px;
   color: var(--text-primary);
+  overflow: visible;
 }
 
 .truncated-id {
@@ -208,10 +213,7 @@ header p {
 
 .action-menu {
   display: none;
-  position: absolute;
-  right: 0;
-  top: 100%;
-  margin-top: 5px;
+  position: fixed;
   background: white;
   border: 1px solid var(--border);
   border-radius: 8px;
