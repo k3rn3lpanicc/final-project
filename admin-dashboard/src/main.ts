@@ -1,10 +1,12 @@
 import './style.css';
 import { api, Request, PaginatedResponse } from './api';
 
-let currentPage: number = 1;
+// Load current page from URL or localStorage
+const urlParams = new URLSearchParams(window.location.search);
+let currentPage: number = parseInt(urlParams.get('page') || localStorage.getItem('currentPage') || '1');
 let itemsPerPage: number = 10;
 let totalPages: number = 1;
-let currentFilter: string = 'all';
+let currentFilter: string = urlParams.get('filter') || localStorage.getItem('currentFilter') || 'all';
 
 async function loadRequests(preserveScroll: boolean = false) {
 	try {
@@ -22,6 +24,9 @@ async function loadRequests(preserveScroll: boolean = false) {
 		await updateStats();
 		renderRequests(response);
 		
+		// Update URL and localStorage
+		updatePageState();
+		
 		// Restore scroll position if preserving
 		if (preserveScroll) {
 			window.scrollTo(0, scrollPosition);
@@ -32,6 +37,18 @@ async function loadRequests(preserveScroll: boolean = false) {
 		requestsContainer.innerHTML =
 			'<p class="error">Failed to load requests. Please check if the backend is running.</p>';
 	}
+}
+
+function updatePageState() {
+	// Update URL without reloading
+	const url = new URL(window.location.href);
+	url.searchParams.set('page', currentPage.toString());
+	url.searchParams.set('filter', currentFilter);
+	window.history.replaceState({}, '', url.toString());
+	
+	// Also save to localStorage as backup
+	localStorage.setItem('currentPage', currentPage.toString());
+	localStorage.setItem('currentFilter', currentFilter);
 }
 
 async function updateStats() {
@@ -207,7 +224,7 @@ async function viewDetails(id: string) {
 		modal.className = 'modal active';
 		modal.innerHTML = `
       <div class="modal-content modal-details">
-        <span class="modal-close" onclick="this.parentElement.parentElement.remove()">&times;</span>
+        <span class="modal-close">&times;</span>
         <h2>Request Details - #${id.substring(0, 8)}</h2>
         
         <div class="details-grid">
@@ -288,6 +305,9 @@ async function viewDetails(id: string) {
       </div>
     `;
 		document.body.appendChild(modal);
+		
+		// Add close handlers
+		setupModalCloseHandlers(modal);
 	} catch (error) {
 		console.error('Error viewing details:', error);
 		showNotification('Failed to load request details', 'error');
@@ -308,15 +328,15 @@ async function viewSignature(id: string) {
 		modal.className = 'modal active';
 		modal.innerHTML = `
       <div class="modal-content">
-        <span class="modal-close" onclick="this.parentElement.parentElement.remove()">&times;</span>
+        <span class="modal-close">&times;</span>
         <h2>Signature Data - Request #${id.substring(0, 8)}</h2>
         <div class="request-field">
           <label>Name</label>
           <p>${request.fullName}</p>
         </div>
-        <div class="request-field">
+        <div class="request-field voter-id-field">
           <label>Voter ID</label>
-          <p>${request.voterId}</p>
+          <p class="voter-id-text" style="word-wrap: break-word; word-break: break-all;">${request.voterId}</p>
         </div>
         <div class="signature-data">
           <strong>R8x:</strong><br/>
@@ -340,6 +360,9 @@ async function viewSignature(id: string) {
       </div>
     `;
 		document.body.appendChild(modal);
+		
+		// Add close handlers
+		setupModalCloseHandlers(modal);
 	} catch (error) {
 		console.error('Error fetching signature:', error);
 		showNotification('Failed to fetch signature data', 'error');
@@ -354,6 +377,43 @@ function copySignature(R8x: string, R8y: string, S: string, pubX: string, pubY: 
 	);
 	navigator.clipboard.writeText(data);
 	showNotification('Signature copied to clipboard!', 'success');
+}
+
+function setupModalCloseHandlers(modal: HTMLElement) {
+	// Close button handler
+	const closeBtn = modal.querySelector('.modal-close');
+	if (closeBtn) {
+		closeBtn.addEventListener('click', () => modal.remove());
+	}
+	
+	// Click outside modal content to close
+	modal.addEventListener('click', (e) => {
+		if (e.target === modal) {
+			modal.remove();
+		}
+	});
+	
+	// ESC key to close
+	const escHandler = (e: KeyboardEvent) => {
+		if (e.key === 'Escape') {
+			modal.remove();
+			document.removeEventListener('keydown', escHandler);
+		}
+	};
+	document.addEventListener('keydown', escHandler);
+	
+	// Clean up listener when modal is removed
+	const observer = new MutationObserver((mutations) => {
+		mutations.forEach((mutation) => {
+			mutation.removedNodes.forEach((node) => {
+				if (node === modal) {
+					document.removeEventListener('keydown', escHandler);
+					observer.disconnect();
+				}
+			});
+		});
+	});
+	observer.observe(document.body, { childList: true });
 }
 
 function showNotification(message: string, type: 'success' | 'error') {
@@ -385,6 +445,13 @@ document.querySelectorAll('.filter-btn').forEach((btn) => {
 		loadRequests();
 	});
 });
+
+// Set initial filter button state based on URL/localStorage
+const filterBtn = document.querySelector(`.filter-btn[data-status="${currentFilter}"]`);
+if (filterBtn) {
+	document.querySelectorAll('.filter-btn').forEach((b) => b.classList.remove('active'));
+	filterBtn.classList.add('active');
+}
 
 function generatePageNumbers(current: number, total: number): string {
 	const pages: (number | string)[] = [];
