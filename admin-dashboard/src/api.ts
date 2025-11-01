@@ -1,6 +1,43 @@
 import axios from 'axios';
+import { authService } from './auth';
 
 const API_BASE_URL = 'http://localhost:3000';
+
+// Add axios interceptor to include access token
+axios.interceptors.request.use(
+  (config) => {
+    const token = authService.getAccessToken();
+    if (token) {
+      config.headers.Authorization = `Bearer ${token}`;
+    }
+    return config;
+  },
+  (error) => Promise.reject(error)
+);
+
+// Add axios interceptor to handle token refresh
+axios.interceptors.response.use(
+  (response) => response,
+  async (error) => {
+    const originalRequest = error.config;
+    
+    if (error.response?.status === 401 && !originalRequest._retry) {
+      originalRequest._retry = true;
+      
+      try {
+        const newAccessToken = await authService.refreshAccessToken();
+        originalRequest.headers.Authorization = `Bearer ${newAccessToken}`;
+        return axios(originalRequest);
+      } catch (refreshError) {
+        authService.clearTokens();
+        window.location.href = '/';
+        return Promise.reject(refreshError);
+      }
+    }
+    
+    return Promise.reject(error);
+  }
+);
 
 export interface Request {
   id: string;
@@ -84,6 +121,7 @@ export const api = {
   },
 
   getImageUrl(requestId: string, type: 'passport' | 'photo'): string {
-    return `${API_BASE_URL}/admin/request/${requestId}/image/${type}`;
+    const token = authService.getAccessToken();
+    return `${API_BASE_URL}/admin/request/${requestId}/image/${type}?token=${token}`;
   }
 };

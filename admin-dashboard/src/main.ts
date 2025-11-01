@@ -1,5 +1,22 @@
 import './style.css';
 import { api, Request, PaginatedResponse } from './api';
+import { authService } from './auth';
+
+// Check authentication on page load
+if (!authService.isAuthenticated()) {
+  window.location.href = '/login.html';
+}
+
+// Add logout handler
+document.addEventListener('DOMContentLoaded', () => {
+  const logoutBtn = document.getElementById('logout-btn');
+  if (logoutBtn) {
+    logoutBtn.addEventListener('click', async () => {
+      await authService.logout();
+      window.location.href = '/login.html';
+    });
+  }
+});
 
 // Load current page from URL or localStorage
 const urlParams = new URLSearchParams(window.location.search);
@@ -418,21 +435,50 @@ function setupModalCloseHandlers(modal: HTMLElement) {
 
 function showNotification(message: string, type: 'success' | 'error') {
 	const notification = document.createElement('div');
-	notification.className = type;
+	notification.className = `toast-notification ${type}`;
 	notification.textContent = message;
 	notification.style.position = 'fixed';
-	notification.style.top = '20px';
 	notification.style.right = '20px';
 	notification.style.zIndex = '2000';
 	notification.style.minWidth = '250px';
 	notification.style.animation = 'slideIn 0.3s ease-out';
 
+	// Calculate position based on existing toasts
+	const existingToasts = document.querySelectorAll('.toast-notification');
+	let topPosition = 20;
+	existingToasts.forEach((toast) => {
+		const toastElement = toast as HTMLElement;
+		const toastRect = toastElement.getBoundingClientRect();
+		const toastBottom = parseInt(toastElement.style.top || '20') + toastRect.height;
+		if (toastBottom + 10 > topPosition) {
+			topPosition = toastBottom + 10;
+		}
+	});
+	
+	notification.style.top = `${topPosition}px`;
+
 	document.body.appendChild(notification);
 
 	setTimeout(() => {
 		notification.style.animation = 'slideOut 0.3s ease-out';
-		setTimeout(() => notification.remove(), 300);
+		setTimeout(() => {
+			notification.remove();
+			// Reposition remaining toasts
+			repositionToasts();
+		}, 300);
 	}, 3000);
+}
+
+function repositionToasts() {
+	const toasts = document.querySelectorAll('.toast-notification');
+	let currentTop = 20;
+	toasts.forEach((toast) => {
+		const toastElement = toast as HTMLElement;
+		toastElement.style.transition = 'top 0.3s ease-out';
+		toastElement.style.top = `${currentTop}px`;
+		const toastRect = toastElement.getBoundingClientRect();
+		currentTop += toastRect.height + 10;
+	});
 }
 
 // Setup filter buttons

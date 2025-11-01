@@ -9,13 +9,15 @@ import {
   Res,
   StreamableFile,
   Query,
+  UseGuards,
 } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiResponse, ApiBody, ApiQuery } from '@nestjs/swagger';
+import { ApiTags, ApiOperation, ApiResponse, ApiBody, ApiQuery, ApiBearerAuth } from '@nestjs/swagger';
 import { Response } from 'express';
 import { createReadStream, existsSync } from 'fs';
 import { join } from 'path';
 import { AdminService } from './admin.service';
 import { VoterRequestResponseDto, SignatureDataDto, AdminPublicKeyDto } from '../common/dto';
+import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 
 @ApiTags('admin')
 @Controller('admin')
@@ -37,6 +39,8 @@ export class AdminController {
   }
 
   @Get('requests')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
   @ApiOperation({
     summary: 'List all voter registration requests with pagination',
     description: 'Get all pending, approved, and rejected voter registration requests with pagination support',
@@ -76,6 +80,8 @@ export class AdminController {
   }
 
   @Get('requests/pending')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
   @ApiOperation({
     summary: 'List pending voter registration requests',
     description: 'Get all voter registration requests that are awaiting admin approval',
@@ -90,6 +96,8 @@ export class AdminController {
   }
 
   @Get('request/:id')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
   @ApiOperation({
     summary: 'Get detailed voter request',
     description: 'Retrieve full details of a specific voter registration request including file paths',
@@ -107,6 +115,8 @@ export class AdminController {
   }
 
   @Post('request/:id/approve')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
   @ApiOperation({
     summary: 'Approve voter registration request',
     description: 'Sign the voter credentials with admin private key and mark request as approved',
@@ -143,6 +153,8 @@ export class AdminController {
   }
 
   @Post('request/:id/reject')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
   @ApiOperation({
     summary: 'Reject voter registration request',
     description: 'Reject a voter registration request with optional reason',
@@ -178,6 +190,8 @@ export class AdminController {
   }
 
   @Get('request/:id/image/:type')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
   @ApiOperation({
     summary: 'Get voter image',
     description: 'Retrieve passport or photo image for a specific voter request',

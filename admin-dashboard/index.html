@@ -4,45 +4,12 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Admin Dashboard - Vote Scheme</title>
+    <title>Admin - Vote Scheme</title>
+    <script type="module">
+      window.location.href = '/login.html';
+    </script>
   </head>
   <body>
-    <div id="app">
-      <header>
-        <h1>Admin Dashboard</h1>
-        <p>Manage voter registration requests</p>
-      </header>
-      
-      <main>
-        <section id="stats">
-          <div class="stat-card">
-            <h3>Pending Requests</h3>
-            <p id="pending-count">0</p>
-          </div>
-          <div class="stat-card">
-            <h3>Approved</h3>
-            <p id="approved-count">0</p>
-          </div>
-          <div class="stat-card">
-            <h3>Rejected</h3>
-            <p id="rejected-count">0</p>
-          </div>
-        </section>
-
-        <section id="requests">
-          <h2>Registration Requests</h2>
-          <div class="filters">
-            <button class="filter-btn active" data-status="all">All</button>
-            <button class="filter-btn" data-status="pending">Pending</button>
-            <button class="filter-btn" data-status="approved">Approved</button>
-            <button class="filter-btn" data-status="rejected">Rejected</button>
-          </div>
-          <div id="requests-container">
-            <p>Loading requests...</p>
-          </div>
-        </section>
-      </main>
-    </div>
-    <script type="module" src="/src/main.ts"></script>
+    <p>Redirecting to login...</p>
   </body>
 </html>
