@@ -887,40 +887,6 @@ async function handleGenerateProof() {
 		currentPublicSignals = publicSignals;
 		
 		// Display proof
-		const proofOutputDiv = document.querySelector('#proofOutput');
-		if (proofOutputDiv) {
-			const parsed = parsePublicSignals(publicSignals);
-			proofOutputDiv.innerHTML = `
-				<h3>✅ Proof Generated Successfully!</h3>
-				<div class="credential-item">
-					<strong>Nullifier Hash:</strong>
-					<div class="value">${parsed.nullifier}</div>
-				</div>
-				<div class="credential-item">
-					<strong>Election ID:</strong>
-					<div class="value">${parsed.electionId}</div>
-				</div>
-				<p class="note">Proof contains ${publicSignals.length} public signals</p>
-				<button id="downloadProof" class="btn btn-secondary">📥 Download Proof</button>
-			`;
-			
-			// Attach download handler
-			const downloadBtn = document.querySelector('#downloadProof');
-			if (downloadBtn) {
-				downloadBtn.addEventListener('click', () => {
-					const proofJson = exportProof(proof, publicSignals);
-					const blob = new Blob([proofJson], { type: 'application/json' });
-					const url = URL.createObjectURL(blob);
-					const a = document.createElement('a');
-					a.href = url;
-					a.download = 'proof.json';
-					a.click();
-					URL.revokeObjectURL(url);
-					log('Proof downloaded!', 'success');
-				});
-			}
-		}
-		
 		log('Proof generated successfully!', 'success');
 		
 		// Re-render proof tab to show verify buttons
@@ -928,6 +894,41 @@ async function handleGenerateProof() {
 		if (proofTab) {
 			proofTab.innerHTML = renderProofTab();
 			attachEventListeners();
+			
+			// Now update the proofOutput div after re-render
+			const proofOutputDiv = document.querySelector('#proofOutput');
+			if (proofOutputDiv) {
+				const parsed = parsePublicSignals(publicSignals);
+				proofOutputDiv.innerHTML = `
+					<h3>✅ Proof Generated Successfully!</h3>
+					<div class="credential-item">
+						<strong>Nullifier Hash:</strong>
+						<div class="value">${parsed.nullifier}</div>
+					</div>
+					<div class="credential-item">
+						<strong>Election ID:</strong>
+						<div class="value">${parsed.electionId}</div>
+					</div>
+					<p class="note">Proof contains ${publicSignals.length} public signals</p>
+					<button id="downloadProof" class="btn btn-secondary">📥 Download Proof</button>
+				`;
+				
+				// Attach download handler
+				const downloadBtn = document.querySelector('#downloadProof');
+				if (downloadBtn) {
+					downloadBtn.addEventListener('click', () => {
+						const proofJson = exportProof(proof, publicSignals);
+						const blob = new Blob([proofJson], { type: 'application/json' });
+						const url = URL.createObjectURL(blob);
+						const a = document.createElement('a');
+						a.href = url;
+						a.download = 'proof.json';
+						a.click();
+						URL.revokeObjectURL(url);
+						log('Proof downloaded!', 'success');
+					});
+				}
+			}
 		}
 	} catch (error) {
 		log(`Error: ${error instanceof Error ? error.message : 'Unknown error'}`, 'error');
