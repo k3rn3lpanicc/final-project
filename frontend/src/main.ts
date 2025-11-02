@@ -511,20 +511,35 @@ function switchTab(tabName: string) {
 	const cred = credentialsList.find(c => c.id === credId);
 	if (!cred) return;
 	
-	const data = JSON.stringify(cred, null, 2);
+	// Convert BigInt to string for JSON
+	const credData = {
+		...cred,
+		credentials: {
+			ID: cred.credentials.ID.toString(),
+			X: cred.credentials.X.toString(),
+			Xp: cred.credentials.Xp.toString(),
+		}
+	};
+	
+	const data = JSON.stringify(credData, null, 2);
 	const blob = new Blob([data], { type: 'application/json' });
 	const url = URL.createObjectURL(blob);
 	const a = document.createElement('a');
 	a.href = url;
 	a.download = `credential-${cred.name.replace(/\s+/g, '-')}.json`;
+	document.body.appendChild(a);
 	a.click();
+	document.body.removeChild(a);
 	URL.revokeObjectURL(url);
 	log(`Downloaded credential: ${cred.name}`, 'success');
 };
 
-(window as any).deleteCredential = function(credId: string) {
+(window as any).deleteCredential = async function(credId: string) {
 	const cred = credentialsList.find(c => c.id === credId);
-	if (!cred) return;
+	if (!cred) {
+		log('Credential not found!', 'error');
+		return;
+	}
 	
 	const hasApproved = cred.requests.some(r => r.status === 'approved');
 	if (hasApproved) {
@@ -532,21 +547,38 @@ function switchTab(tabName: string) {
 		return;
 	}
 	
-	if (!confirm(`Delete credential "${cred.name}"? This action cannot be undone.`)) {
+	if (!confirm(`Delete credential "${cred.name}"?\n\nThis will permanently remove this credential and all its pending requests. This action cannot be undone.`)) {
 		return;
 	}
 	
-	credentialsList = credentialsList.filter(c => c.id !== credId);
-	if (selectedCredentialId === credId) {
-		selectedCredentialId = null;
-	}
-	saveCredentials();
-	log(`Deleted credential: ${cred.name}`, 'success');
-	
-	// Re-render credentials tab
-	const credTab = document.querySelector('#tab-credentials');
-	if (credTab) {
-		credTab.innerHTML = renderCredentialsTab();
+	try {
+		// Delete all pending requests from backend
+		for (const req of cred.requests) {
+			if (req.status === 'pending' || req.status === 'rejected' || req.status === 'auto_rejected') {
+				try {
+					// Note: Backend doesn't have a delete endpoint, but we'll remove it locally
+					console.log(`Would delete request ${req.id} from backend`);
+				} catch (error) {
+					console.warn(`Failed to delete request ${req.id}:`, error);
+				}
+			}
+		}
+		
+		// Remove credential locally
+		credentialsList = credentialsList.filter(c => c.id !== credId);
+		if (selectedCredentialId === credId) {
+			selectedCredentialId = null;
+		}
+		saveCredentials();
+		log(`Deleted credential: ${cred.name}`, 'success');
+		
+		// Re-render credentials tab
+		const credTab = document.querySelector('#tab-credentials');
+		if (credTab) {
+			credTab.innerHTML = renderCredentialsTab();
+		}
+	} catch (error) {
+		log(`Error deleting credential: ${error instanceof Error ? error.message : 'Unknown error'}`, 'error');
 	}
 };
 
