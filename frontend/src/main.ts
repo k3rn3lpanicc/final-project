@@ -25,7 +25,6 @@ interface CredentialItem {
 }
 
 let credentialsList: CredentialItem[] = [];
-let selectedCredentialId: string | null = null;
 let currentProof: any = null;
 let currentPublicSignals: string[] = [];
 let selectedRequestId: string | null = null;
@@ -71,9 +70,9 @@ function saveCredentials() {
 	console.log('Saved credentials to localStorage:', credentialsList.length);
 }
 
-// Get selected credential
-function getSelectedCredential(): CredentialItem | null {
-	return credentialsList.find(c => c.id === selectedCredentialId) || null;
+// Get credential for a specific request
+function getCredentialForRequest(requestId: string): CredentialItem | null {
+	return credentialsList.find(c => c.requests.some(r => r.id === requestId)) || null;
 }
 
 function log(message: string, type: 'info' | 'success' | 'error' = 'info') {
@@ -157,10 +156,10 @@ function renderCredentialCard(cred: CredentialItem) {
 	const approvedRequests = cred.requests.filter(r => r.status === 'approved');
 	const pendingRequests = cred.requests.filter(r => r.status === 'pending');
 	const hasApproved = approvedRequests.length > 0;
-	const isSelected = cred.id === selectedCredentialId;
+	
 	
 	return `
-		<div class="credential-card ${isSelected ? 'selected' : ''}" data-credential-id="${cred.id}">
+		<div class="credential-card " data-credential-id="${cred.id}">
 			<div class="credential-header">
 				<div>
 					<h3>${cred.name}</h3>
@@ -189,11 +188,6 @@ function renderCredentialCard(cred: CredentialItem) {
 			</div>
 			
 			<div class="credential-actions">
-				${hasApproved ? `
-					<button class="btn btn-sm btn-primary" onclick="window.selectCredential('${cred.id}')">
-						${isSelected ? '✓ Selected' : '🔐 Use for Proof'}
-					</button>
-				` : ''}
 				<button class="btn btn-sm btn-success" onclick="window.submitNewRequestForCredential('${cred.id}')">
 					📤 New Request
 				</button>
@@ -300,29 +294,26 @@ function renderRegisterTab() {
 }
 
 function renderProofTab() {
-	const selectedCred = getSelectedCredential();
+	if (!selectedRequestId) {
+		return `
+			<div class="empty-state">
+				<h2>🔐 No Request Selected</h2>
+				<p>Please go to "My Credentials" tab and click "Generate Proof" on an approved request.</p>
+			</div>
+		`;
+	}
 	
+	const selectedCred = getCredentialForRequest(selectedRequestId);
 	if (!selectedCred) {
 		return `
 			<div class="empty-state">
-				<h2>🔐 No Credential Selected</h2>
-				<p>Please go to "My Credentials" tab and select a credential to generate proofs.</p>
+				<h2>❌ Error</h2>
+				<p>Could not find credential for selected request.</p>
 			</div>
 		`;
 	}
 	
-	const approvedRequests = selectedCred.requests.filter(r => r.status === 'approved');
-	
-	if (approvedRequests.length === 0) {
-		return `
-			<div class="empty-state">
-				<h2>⏳ No Approved Requests</h2>
-				<p>You have selected: <strong>${selectedCred.name}</strong></p>
-				<p>This credential has no approved registration requests yet.</p>
-				<p>Please wait for admin approval or create a new registration request.</p>
-			</div>
-		`;
-	}
+	const selectedRequest = selectedCred.requests.find(r => r.id === selectedRequestId);
 	
 	return `
 		<div class="section">
@@ -330,36 +321,17 @@ function renderProofTab() {
 			<div class="info-box">
 				<h4>Selected Credential: ${selectedCred.name}</h4>
 				<p>Voter ID: <code>${String(selectedCred.credentials.ID).substring(0, 20)}...</code></p>
-				<p class="note">✓ ${approvedRequests.length} approved request(s) available</p>
 			</div>
 			
-			${selectedRequestId ? `
-				<div class="info-box success-box">
-					<h4>✅ Signature Loaded</h4>
-					<p>Request ID: ${selectedRequestId}</p>
-					<p>Ready to generate proof!</p>
-				</div>
-			` : `
-				<div class="approved-requests">
-					<h4>Select an Approved Request:</h4>
-					${approvedRequests.map(req => `
-						<div class="request-selector">
-							<div>
-								<strong>${req.fullName}</strong> - ${req.passportNumber}
-								<br><small>${new Date(req.createdAt || '').toLocaleString()}</small>
-							</div>
-							<button class="btn btn-sm btn-primary" onclick="window.loadSignatureForProof('${req.id}')">
-								Load Signature
-							</button>
-						</div>
-					`).join('')}
-				</div>
-			`}
+			<div class="info-box success-box">
+				<h4>✅ Selected Request</h4>
+				<p><strong>${selectedRequest?.fullName}</strong> - ${selectedRequest?.passportNumber}</p>
+				<p>Request ID: ${selectedRequestId}</p>
+				<p>Ready to generate proof!</p>
+			</div>
 			
-			${selectedRequestId ? `
-				<button id="generateProof" class="btn btn-primary">🔐 Generate zkSNARK Proof</button>
-				<div id="proofOutput" class="info-box"></div>
-			` : ''}
+			<button id="generateProof" class="btn btn-primary">🔐 Generate zkSNARK Proof</button>
+			<div id="proofOutput" class="info-box"></div>
 		</div>
 		
 		${currentProof ? `
@@ -462,20 +434,6 @@ function switchTab(tabName: string) {
 }
 
 // Global window functions for onclick handlers
-(window as any).selectCredential = function(credId: string) {
-	selectedCredentialId = credId;
-	log(`Selected credential: ${credentialsList.find(c => c.id === credId)?.name}`, 'success');
-	
-	// Re-render credentials tab
-	const credTab = document.querySelector('#tab-credentials');
-	if (credTab) {
-		credTab.innerHTML = renderCredentialsTab();
-	}
-	
-	// Switch to proof tab
-	switchTab('proof');
-};
-
 (window as any).viewCredentialDetails = function(credId: string) {
 	const cred = credentialsList.find(c => c.id === credId);
 	if (!cred) return;
@@ -574,9 +532,6 @@ function switchTab(tabName: string) {
 		
 		// Remove credential locally
 		credentialsList = credentialsList.filter(c => c.id !== credId);
-		if (selectedCredentialId === credId) {
-			selectedCredentialId = null;
-		}
 		saveCredentials();
 		log(`Deleted credential: ${cred.name}`, 'success');
 		
@@ -632,8 +587,7 @@ function switchTab(tabName: string) {
 			return;
 		}
 		
-		// Select this credential
-		selectedCredentialId = cred.id;
+		// Set the selected request
 		selectedRequestId = requestId;
 		
 		log('Signature loaded successfully!', 'success');
@@ -871,9 +825,14 @@ function startGlobalRefresh() {
 }
 
 async function handleGenerateProof() {
-	const selectedCred = getSelectedCredential();
-	if (!selectedCred || !selectedRequestId) {
-		log('Please select a credential and load signature first!', 'error');
+	if (!selectedRequestId) {
+		log('Please load signature first!', 'error');
+		return;
+	}
+	
+	const selectedCred = getCredentialForRequest(selectedRequestId);
+	if (!selectedCred) {
+		log('Credential not found for selected request!', 'error');
 		return;
 	}
 	
