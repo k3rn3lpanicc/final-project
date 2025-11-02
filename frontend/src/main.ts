@@ -6,7 +6,7 @@ import {
 } from './zkUtils';
 import { generateProof, verifyProof, parsePublicSignals, exportProof } from './proofGenerator';
 import { verifyProofOnChain, isMetaMaskInstalled, getVerifierContractAddress, getExplorerLink } from './blockchainVerifier';
-import { voterAPI, type VoterRequest, type SignatureData } from './api';
+import { voterAPI, type VoterRequest } from './api';
 import { authService } from './auth';
 import { poseidon1 } from 'poseidon-lite';
 
@@ -15,15 +15,66 @@ const WASM_PATH = '/circuit/VoteScheme.wasm';
 const ZKEY_PATH = '/circuit/VoteScheme_final.zkey';
 const VKEY_PATH = '/circuit/verification_key.json';
 
-let currentCredentials: VoteCredentials | null = null;
-let currentRequestId: string | null = null;
-let currentSignature: SignatureData | null = null;
+// Store multiple credentials with metadata
+interface CredentialItem {
+	id: string; // Unique ID for this credential
+	credentials: VoteCredentials;
+	createdAt: number;
+	name: string; // User-friendly name
+	requests: VoterRequest[]; // All requests for this credential
+}
+
+let credentialsList: CredentialItem[] = [];
+let selectedCredentialId: string | null = null;
 let currentProof: any = null;
 let currentPublicSignals: string[] = [];
-let myRequests: VoterRequest[] = [];
+let selectedRequestId: string | null = null;
 
 // DOM Elements
 const app = document.querySelector<HTMLDivElement>('#app')!;
+
+// Load credentials from localStorage
+function loadCredentials() {
+	const stored = localStorage.getItem('voterCredentials');
+	if (stored) {
+		try {
+			const parsed = JSON.parse(stored);
+			// Convert BigInt strings back to BigInt
+			credentialsList = parsed.map((item: any) => ({
+				...item,
+				credentials: {
+					ID: BigInt(item.credentials.ID),
+					X: BigInt(item.credentials.X),
+					Xp: BigInt(item.credentials.Xp),
+				}
+			}));
+			console.log('Loaded credentials from localStorage:', credentialsList.length);
+		} catch (e) {
+			console.error('Failed to parse credentials:', e);
+			credentialsList = [];
+		}
+	}
+}
+
+// Save credentials to localStorage
+function saveCredentials() {
+	// Convert BigInt to string for JSON storage
+	const toSave = credentialsList.map(item => ({
+		...item,
+		credentials: {
+			ID: item.credentials.ID.toString(),
+			X: item.credentials.X.toString(),
+			Xp: item.credentials.Xp.toString(),
+		}
+	}));
+	localStorage.setItem('voterCredentials', JSON.stringify(toSave));
+	console.log('Saved credentials to localStorage:', credentialsList.length);
+}
+
+// Get selected credential
+function getSelectedCredential(): CredentialItem | null {
+	return credentialsList.find(c => c.id === selectedCredentialId) || null;
+}
 
 function log(message: string, type: 'info' | 'success' | 'error' = 'info') {
 	const timestamp = new Date().toLocaleTimeString();
@@ -40,6 +91,8 @@ function log(message: string, type: 'info' | 'success' | 'error' = 'info') {
 
 // Initialize app
 function initApp() {
+	loadCredentials(); // Load saved credentials
+	
 	app.innerHTML = `
 		<div class="container">
 			<header>
@@ -53,17 +106,17 @@ function initApp() {
 			</header>
 			
 			<nav class="tabs">
-				<button class="tab active" data-tab="register">Register</button>
-				<button class="tab" data-tab="requests">My Requests</button>
+				<button class="tab active" data-tab="credentials">My Credentials</button>
+				<button class="tab" data-tab="register">Register New</button>
 				<button class="tab" data-tab="proof">Generate Proof</button>
 			</nav>
 			
 			<div class="tab-content">
-				<div id="tab-register" class="tab-pane active">
-					${renderRegisterTab()}
+				<div id="tab-credentials" class="tab-pane active">
+					${renderCredentialsTab()}
 				</div>
-				<div id="tab-requests" class="tab-pane">
-					${renderRequestsTab()}
+				<div id="tab-register" class="tab-pane">
+					${renderRegisterTab()}
 				</div>
 				<div id="tab-proof" class="tab-pane">
 					${renderProofTab()}
@@ -75,141 +128,249 @@ function initApp() {
 	`;
 	
 	attachEventListeners();
-	loadMyRequests();
+	startGlobalRefresh(); // Start refreshing all pending requests
 }
 
-function renderRegisterTab() {
-	return `
-		<div class="section">
-			<h2>Step 1: Generate Credentials</h2>
-			<p>First, generate your unique voter credentials. These will be used to create your anonymous voting identity.</p>
-			<button id="generateCred" class="btn btn-primary">Generate Voter Credentials</button>
-			<div id="credentials" class="info-box"></div>
-		</div>
-		
-		<div class="section">
-			<h2>Step 2: Submit Registration</h2>
-			<p>Upload your documents and personal information to register for voting.</p>
-			<form id="registrationForm" class="form">
-				<div class="form-group">
-					<label for="fullName">Full Name:</label>
-					<input type="text" id="fullName" name="fullName" required />
-				</div>
-				<div class="form-group">
-					<label for="passportNumber">Passport Number:</label>
-					<input type="text" id="passportNumber" name="passportNumber" required />
-				</div>
-				<div class="form-group">
-					<label for="dateOfBirth">Date of Birth:</label>
-					<input type="date" id="dateOfBirth" name="dateOfBirth" required />
-				</div>
-				<div class="form-group">
-					<label for="nationality">Nationality:</label>
-					<input type="text" id="nationality" name="nationality" required />
-				</div>
-				<div class="form-group">
-					<label for="passportImage">Passport Image:</label>
-					<input type="file" id="passportImage" name="passportImage" accept="image/*" required />
-				</div>
-				<div class="form-group">
-					<label for="photo">Your Photo:</label>
-					<input type="file" id="photo" name="photo" accept="image/*" required />
-				</div>
-				<button type="submit" id="submitRegistration" class="btn btn-primary" disabled>Submit Registration</button>
-			</form>
-		</div>
-	`;
-}
-
-function renderRequestsTab() {
-	if (myRequests.length === 0) {
+function renderCredentialsTab() {
+	if (credentialsList.length === 0) {
 		return `
 			<div class="empty-state">
-				<p>You haven't submitted any requests yet.</p>
-				<p>Go to the Register tab to submit your first request.</p>
+				<h2>📋 No Credentials Yet</h2>
+				<p>You haven't created any voter credentials yet.</p>
+				<p>Go to the "Register New" tab to create your first credential and submit a registration request.</p>
 			</div>
 		`;
 	}
 	
 	return `
 		<div class="section">
-			<div class="header-actions">
-				<h2>My Registration Requests</h2>
-				<button id="refreshRequests" class="btn btn-secondary">🔄 Refresh</button>
-			</div>
-			<div class="requests-list">
-				${myRequests.map(req => renderRequestCard(req)).join('')}
+			<h2>📋 My Voter Credentials</h2>
+			<p class="note">Manage your voter credentials and their registration requests. Select a credential to generate proofs.</p>
+			<div class="credentials-grid">
+				${credentialsList.map(cred => renderCredentialCard(cred)).join('')}
 			</div>
 		</div>
 	`;
 }
 
-function renderRequestCard(request: VoterRequest) {
+function renderCredentialCard(cred: CredentialItem) {
+	const approvedRequests = cred.requests.filter(r => r.status === 'approved');
+	const pendingRequests = cred.requests.filter(r => r.status === 'pending');
+	const hasApproved = approvedRequests.length > 0;
+	const isSelected = cred.id === selectedCredentialId;
+	
+	return `
+		<div class="credential-card ${isSelected ? 'selected' : ''}" data-credential-id="${cred.id}">
+			<div class="credential-header">
+				<div>
+					<h3>${cred.name}</h3>
+					<span class="credential-date">Created: ${new Date(cred.createdAt).toLocaleDateString()}</span>
+				</div>
+				${hasApproved ? '<span class="badge badge-success">✓ Approved</span>' : 
+				  pendingRequests.length > 0 ? '<span class="badge badge-warning">⏳ Pending</span>' :
+				  '<span class="badge badge-secondary">No Requests</span>'}
+			</div>
+			
+			<div class="credential-info">
+				<div class="info-row">
+					<span class="label">Voter ID:</span>
+					<span class="value-short" title="${cred.credentials.ID.toString()}">${String(cred.credentials.ID).substring(0, 16)}...</span>
+				</div>
+				<div class="info-row">
+					<span class="label">Requests:</span>
+					<span class="value">${cred.requests.length} total</span>
+				</div>
+				${approvedRequests.length > 0 ? `
+					<div class="info-row">
+						<span class="label">Status:</span>
+						<span class="value success">✓ ${approvedRequests.length} Approved</span>
+					</div>
+				` : ''}
+			</div>
+			
+			<div class="credential-actions">
+				${hasApproved ? `
+					<button class="btn btn-sm btn-primary" onclick="window.selectCredential('${cred.id}')">
+						${isSelected ? '✓ Selected' : '🔐 Use for Proof'}
+					</button>
+				` : ''}
+				<button class="btn btn-sm btn-success" onclick="window.submitNewRequestForCredential('${cred.id}')">
+					📤 New Request
+				</button>
+				<button class="btn btn-sm btn-secondary" onclick="window.viewCredentialDetails('${cred.id}')">
+					📋 Details
+				</button>
+				<button class="btn btn-sm btn-info" onclick="window.downloadCredential('${cred.id}')">
+					💾 Download
+				</button>
+				${!hasApproved ? `
+					<button class="btn btn-sm btn-danger" onclick="window.deleteCredential('${cred.id}')">
+						🗑️ Delete
+					</button>
+				` : ''}
+			</div>
+			
+			${cred.requests.length > 0 ? `
+				<div class="credential-requests">
+					<h4>Registration Requests:</h4>
+					${cred.requests.map(req => renderMiniRequestCard(req)).join('')}
+				</div>
+			` : ''}
+		</div>
+	`;
+}
+
+function renderMiniRequestCard(request: VoterRequest) {
 	const statusClass = request.status === 'approved' ? 'status-approved' :
 	                    (request.status === 'rejected' || request.status === 'auto_rejected') ? 'status-rejected' : 'status-pending';
 	
 	return `
-		<div class="request-card">
-			<div class="request-header">
-				<span class="request-id">ID: ${request.id.substring(0, 8)}...</span>
+		<div class="mini-request-card">
+			<div class="mini-request-header">
+				<span class="mini-request-id" title="${request.id}">${request.id.substring(0, 8)}...</span>
 				<span class="status-badge ${statusClass}">${request.status === 'auto_rejected' ? 'AUTO REJECTED' : request.status.toUpperCase()}</span>
 			</div>
-			<div class="request-body">
-				<p><strong>Name:</strong> ${request.fullName}</p>
-				<p><strong>Passport:</strong> ${request.passportNumber}</p>
-				<p><strong>Status:</strong> ${request.status === 'auto_rejected' ? 'Auto Rejected' : request.status}</p>
-				<p><strong>Submitted:</strong> ${new Date(request.createdAt || '').toLocaleString()}</p>
+			<div class="mini-request-body">
+				<p><strong>${request.fullName}</strong> - ${request.passportNumber}</p>
+				<p class="mini-request-date">${new Date(request.createdAt || '').toLocaleString()}</p>
 			</div>
-			<div class="request-actions">
-				${request.status === 'approved' ? `
-					<button class="btn btn-primary" onclick="window.loadSignature('${request.id}')">
-						View Signature & Generate Proof
-					</button>
-				` : request.status === 'pending' ? `
-					<p class="pending-message">⏳ Waiting for admin approval...</p>
-				` : request.status === 'auto_rejected' ? `
-					<p class="rejected-message">🔄 Auto-rejected (another request was approved)</p>
-				` : `
-					<p class="rejected-message">❌ Request rejected</p>
-				`}
+			${request.status === 'approved' ? `
+				<button class="btn btn-xs btn-success" onclick="window.loadSignatureForProof('${request.id}')">
+					Generate Proof →
+				</button>
+			` : ''}
+		</div>
+	`;
+}
+
+function renderRegisterTab() {
+	return `
+		<div class="section">
+			<h2>🆕 Create New Voter Credential</h2>
+			<p>Generate new credentials and submit a registration request to the admin.</p>
+			
+			<div class="form-section">
+				<h3>Step 1: Generate Credentials</h3>
+				<div class="input-group">
+					<input type="text" id="credentialName" placeholder="Enter a name for this credential (e.g., 'Main Account', 'Backup')" />
+				</div>
+				<button id="generateCred" class="btn btn-primary">🎲 Generate New Credentials</button>
+				<div id="newCredentials" class="info-box"></div>
+			</div>
+			
+			<div class="form-section" id="registrationSection" style="display: none;">
+				<h3>Step 2: Submit Registration</h3>
+				<p>Upload your documents and personal information to register for voting.</p>
+				<form id="registrationForm" class="form">
+					<div class="form-group">
+						<label for="fullName">Full Name:</label>
+						<input type="text" id="fullName" name="fullName" required />
+					</div>
+					<div class="form-group">
+						<label for="passportNumber">Passport Number:</label>
+						<input type="text" id="passportNumber" name="passportNumber" required />
+					</div>
+					<div class="form-group">
+						<label for="dateOfBirth">Date of Birth:</label>
+						<input type="date" id="dateOfBirth" name="dateOfBirth" required />
+					</div>
+					<div class="form-group">
+						<label for="nationality">Nationality:</label>
+						<input type="text" id="nationality" name="nationality" required />
+					</div>
+					<div class="form-group">
+						<label for="passportImage">Passport Image:</label>
+						<input type="file" id="passportImage" name="passportImage" accept="image/*" required />
+					</div>
+					<div class="form-group">
+						<label for="photo">Your Photo:</label>
+						<input type="file" id="photo" name="photo" accept="image/*" required />
+					</div>
+					<button type="submit" id="submitRegistration" class="btn btn-primary">📤 Submit Registration</button>
+				</form>
 			</div>
 		</div>
 	`;
 }
 
 function renderProofTab() {
-	if (!currentSignature) {
+	const selectedCred = getSelectedCredential();
+	
+	if (!selectedCred) {
 		return `
 			<div class="empty-state">
-				<p>No signature loaded.</p>
-				<p>Please go to "My Requests" and select an approved request to load signature data.</p>
+				<h2>🔐 No Credential Selected</h2>
+				<p>Please go to "My Credentials" tab and select a credential to generate proofs.</p>
+			</div>
+		`;
+	}
+	
+	const approvedRequests = selectedCred.requests.filter(r => r.status === 'approved');
+	
+	if (approvedRequests.length === 0) {
+		return `
+			<div class="empty-state">
+				<h2>⏳ No Approved Requests</h2>
+				<p>You have selected: <strong>${selectedCred.name}</strong></p>
+				<p>This credential has no approved registration requests yet.</p>
+				<p>Please wait for admin approval or create a new registration request.</p>
 			</div>
 		`;
 	}
 	
 	return `
 		<div class="section">
-			<h2>Step 3: Generate Zero-Knowledge Proof</h2>
+			<h2>🔐 Generate Zero-Knowledge Proof</h2>
 			<div class="info-box">
-				<h4>Signature Data Loaded</h4>
-				<p>Request ID: ${currentRequestId}</p>
-				<p class="note">Your credentials have been signed by the admin. You can now generate a proof.</p>
+				<h4>Selected Credential: ${selectedCred.name}</h4>
+				<p>Voter ID: <code>${String(selectedCred.credentials.ID).substring(0, 20)}...</code></p>
+				<p class="note">✓ ${approvedRequests.length} approved request(s) available</p>
 			</div>
-			<button id="generateProof" class="btn btn-primary">Generate zkSNARK Proof</button>
-			<div id="proofOutput" class="info-box"></div>
+			
+			${selectedRequestId ? `
+				<div class="info-box success-box">
+					<h4>✅ Signature Loaded</h4>
+					<p>Request ID: ${selectedRequestId}</p>
+					<p>Ready to generate proof!</p>
+				</div>
+			` : `
+				<div class="approved-requests">
+					<h4>Select an Approved Request:</h4>
+					${approvedRequests.map(req => `
+						<div class="request-selector">
+							<div>
+								<strong>${req.fullName}</strong> - ${req.passportNumber}
+								<br><small>${new Date(req.createdAt || '').toLocaleString()}</small>
+							</div>
+							<button class="btn btn-sm btn-primary" onclick="window.loadSignatureForProof('${req.id}')">
+								Load Signature
+							</button>
+						</div>
+					`).join('')}
+				</div>
+			`}
+			
+			${selectedRequestId ? `
+				<button id="generateProof" class="btn btn-primary">🔐 Generate zkSNARK Proof</button>
+				<div id="proofOutput" class="info-box"></div>
+			` : ''}
 		</div>
 		
-		<div class="section">
-			<h2>Step 4: Verify Proof (Local)</h2>
-			<button id="verifyProof" class="btn btn-primary" disabled>Verify Proof Locally</button>
-		</div>
-		
-		<div class="section">
-			<h2>Step 5: Verify Proof (On-Chain)</h2>
-			<p>Submit your proof to the blockchain for final verification.</p>
-			<button id="verifyOnChain" class="btn btn-success" disabled>Verify Proof On-Chain</button>
-			<p class="note">Contract Address: <a href="${getExplorerLink(getVerifierContractAddress())}" target="_blank">${getVerifierContractAddress()}</a></p>
-		</div>
+		${currentProof ? `
+			<div class="section">
+				<h2>✅ Verify Proof (Local)</h2>
+				<button id="verifyProof" class="btn btn-primary">Verify Proof Locally</button>
+				<div id="localVerifyOutput"></div>
+			</div>
+			
+			<div class="section">
+				<h2>⛓️ Verify Proof (On-Chain)</h2>
+				<p>Submit your proof to the blockchain for final verification.</p>
+				<button id="verifyOnChain" class="btn btn-success">Verify Proof On-Chain</button>
+				<p class="note">Contract: <a href="${getExplorerLink(getVerifierContractAddress())}" target="_blank">${getVerifierContractAddress()}</a></p>
+				<div id="onchainVerifyOutput"></div>
+			</div>
+		` : ''}
 	`;
 }
 
@@ -232,12 +393,6 @@ function attachEventListeners() {
 	const registrationForm = document.querySelector('#registrationForm');
 	if (registrationForm) {
 		registrationForm.addEventListener('submit', handleRegistrationSubmit);
-	}
-	
-	// Refresh requests
-	const refreshBtn = document.querySelector('#refreshRequests');
-	if (refreshBtn) {
-		refreshBtn.addEventListener('click', loadMyRequests);
 	}
 	
 	// Proof generation
@@ -284,15 +439,10 @@ function switchTab(tabName: string) {
 	}
 	
 	// Re-render content if needed
-	if (tabName === 'requests') {
-		const requestsTab = document.querySelector('#tab-requests');
-		if (requestsTab) {
-			requestsTab.innerHTML = renderRequestsTab();
-			// Attach refresh button listener
-			const refreshBtn = document.querySelector('#refreshRequests');
-			if (refreshBtn) {
-				refreshBtn.addEventListener('click', loadMyRequests);
-			}
+	if (tabName === 'credentials') {
+		const credTab = document.querySelector('#tab-credentials');
+		if (credTab) {
+			credTab.innerHTML = renderCredentialsTab();
 		}
 	} else if (tabName === 'proof') {
 		const proofTab = document.querySelector('#tab-proof');
@@ -303,8 +453,163 @@ function switchTab(tabName: string) {
 	}
 }
 
+// Global window functions for onclick handlers
+(window as any).selectCredential = function(credId: string) {
+	selectedCredentialId = credId;
+	log(`Selected credential: ${credentialsList.find(c => c.id === credId)?.name}`, 'success');
+	
+	// Re-render credentials tab
+	const credTab = document.querySelector('#tab-credentials');
+	if (credTab) {
+		credTab.innerHTML = renderCredentialsTab();
+	}
+	
+	// Switch to proof tab
+	switchTab('proof');
+};
+
+(window as any).viewCredentialDetails = function(credId: string) {
+	const cred = credentialsList.find(c => c.id === credId);
+	if (!cred) return;
+	
+	const detailsHtml = `
+		<div class="modal-overlay" onclick="this.remove()">
+			<div class="modal" onclick="event.stopPropagation()">
+				<div class="modal-header">
+					<h2>📋 Credential Details: ${cred.name}</h2>
+					<button class="modal-close" onclick="this.closest('.modal-overlay').remove()">×</button>
+				</div>
+				<div class="modal-body">
+					<div class="detail-group">
+						<label>Voter ID:</label>
+						<div class="value-wrap">${cred.credentials.ID.toString()}</div>
+					</div>
+					<div class="detail-group">
+						<label>Secret X:</label>
+						<div class="value-wrap">${cred.credentials.X.toString()}</div>
+					</div>
+					<div class="detail-group">
+						<label>Secret Xp:</label>
+						<div class="value-wrap">${cred.credentials.Xp.toString()}</div>
+					</div>
+					<div class="detail-group">
+						<label>Created:</label>
+						<div>${new Date(cred.createdAt).toLocaleString()}</div>
+					</div>
+					<div class="detail-group">
+						<label>Total Requests:</label>
+						<div>${cred.requests.length}</div>
+					</div>
+				</div>
+			</div>
+		</div>
+	`;
+	document.body.insertAdjacentHTML('beforeend', detailsHtml);
+};
+
+(window as any).downloadCredential = function(credId: string) {
+	const cred = credentialsList.find(c => c.id === credId);
+	if (!cred) return;
+	
+	const data = JSON.stringify(cred, null, 2);
+	const blob = new Blob([data], { type: 'application/json' });
+	const url = URL.createObjectURL(blob);
+	const a = document.createElement('a');
+	a.href = url;
+	a.download = `credential-${cred.name.replace(/\s+/g, '-')}.json`;
+	a.click();
+	URL.revokeObjectURL(url);
+	log(`Downloaded credential: ${cred.name}`, 'success');
+};
+
+(window as any).deleteCredential = function(credId: string) {
+	const cred = credentialsList.find(c => c.id === credId);
+	if (!cred) return;
+	
+	const hasApproved = cred.requests.some(r => r.status === 'approved');
+	if (hasApproved) {
+		log('Cannot delete credential with approved requests!', 'error');
+		return;
+	}
+	
+	if (!confirm(`Delete credential "${cred.name}"? This action cannot be undone.`)) {
+		return;
+	}
+	
+	credentialsList = credentialsList.filter(c => c.id !== credId);
+	if (selectedCredentialId === credId) {
+		selectedCredentialId = null;
+	}
+	saveCredentials();
+	log(`Deleted credential: ${cred.name}`, 'success');
+	
+	// Re-render credentials tab
+	const credTab = document.querySelector('#tab-credentials');
+	if (credTab) {
+		credTab.innerHTML = renderCredentialsTab();
+	}
+};
+
+(window as any).submitNewRequestForCredential = function(credId: string) {
+	const cred = credentialsList.find(c => c.id === credId);
+	if (!cred) return;
+	
+	// Store credential as temp for form submission
+	(window as any).tempCredential = cred;
+	
+	// Switch to register tab and show registration form
+	switchTab('register');
+	
+	// Hide credential generation section, show registration form
+	setTimeout(() => {
+		const regSection = document.querySelector('#registrationSection') as HTMLElement;
+		if (regSection) {
+			regSection.style.display = 'block';
+		}
+		
+		const credentialsDiv = document.querySelector('#newCredentials');
+		if (credentialsDiv) {
+			credentialsDiv.innerHTML = `
+				<h3>📋 Using Credential: ${cred.name}</h3>
+				<div class="credential-item">
+					<strong>Voter ID:</strong>
+					<div class="value-short" title="${cred.credentials.ID.toString()}">${String(cred.credentials.ID).substring(0, 20)}...</div>
+				</div>
+				<p class="note">Fill out the form below to submit a new registration request for this credential.</p>
+			`;
+		}
+	}, 100);
+};
+
+(window as any).loadSignatureForProof = async function(requestId: string) {
+	try {
+		log(`Loading signature for request ${requestId}...`);
+		
+		// Find which credential this request belongs to
+		const cred = credentialsList.find(c => c.requests.some(r => r.id === requestId));
+		if (!cred) {
+			log('Credential not found for this request!', 'error');
+			return;
+		}
+		
+		// Select this credential
+		selectedCredentialId = cred.id;
+		selectedRequestId = requestId;
+		
+		log('Signature loaded successfully!', 'success');
+		
+		// Switch to proof tab
+		switchTab('proof');
+	} catch (error) {
+		log(`Error: ${error instanceof Error ? error.message : 'Unknown error'}`, 'error');
+	}
+};
+
 async function handleGenerateCredentials() {
 	try {
+		const nameInput = document.querySelector('#credentialName') as HTMLInputElement;
+		const name = nameInput?.value.trim() || `Credential ${credentialsList.length + 1}`;
+		
 		log('Generating random voter credentials...');
 		const btn = document.querySelector('#generateCred') as HTMLButtonElement;
 		btn.disabled = true;
@@ -316,36 +621,41 @@ async function handleGenerateCredentials() {
 			Xp: generateRandomField(),
 		};
 
-		currentCredentials = credentials;
+		// Create credential item
+		const newCredential: CredentialItem = {
+			id: Date.now().toString() + Math.random().toString(36).substring(7),
+			credentials,
+			createdAt: Date.now(),
+			name,
+			requests: [],
+		};
+		
+		credentialsList.push(newCredential);
+		saveCredentials();
 
 		// Display credentials
-		const credentialsDiv = document.querySelector('#credentials');
+		const credentialsDiv = document.querySelector('#newCredentials');
 		if (credentialsDiv) {
 			credentialsDiv.innerHTML = `
-				<h3>✅ Voter Credentials Generated</h3>
+				<h3>✅ Credentials Generated: ${name}</h3>
 				<div class="credential-item">
 					<strong>Voter ID:</strong>
-					<div class="value">${credentials.ID.toString()}</div>
+					<div class="value-short" title="${credentials.ID.toString()}">${String(credentials.ID).substring(0, 20)}...</div>
 				</div>
-				<div class="credential-item">
-					<strong>Secret X:</strong>
-					<div class="value">${credentials.X.toString()}</div>
-				</div>
-				<div class="credential-item">
-					<strong>Secret Xp:</strong>
-					<div class="value">${credentials.Xp.toString()}</div>
-				</div>
-				<p class="note">⚠️ Save these credentials securely! You'll need them to generate proofs.</p>
+				<p class="note">✓ Credentials saved! Now you can submit a registration request.</p>
 			`;
 		}
 
-		log('Credentials generated successfully!', 'success');
+		log('Credentials generated and saved successfully!', 'success');
 		
-		// Enable registration form
-		const submitBtn = document.querySelector('#submitRegistration') as HTMLButtonElement;
-		if (submitBtn) {
-			submitBtn.disabled = false;
+		// Show registration section
+		const regSection = document.querySelector('#registrationSection') as HTMLElement;
+		if (regSection) {
+			regSection.style.display = 'block';
 		}
+		
+		// Store temporarily for form submission
+		(window as any).tempCredential = newCredential;
 	} catch (error) {
 		log(`Error: ${error instanceof Error ? error.message : 'Unknown error'}`, 'error');
 	} finally {
@@ -357,7 +667,8 @@ async function handleGenerateCredentials() {
 async function handleRegistrationSubmit(e: Event) {
 	e.preventDefault();
 	
-	if (!currentCredentials) {
+	const tempCred = (window as any).tempCredential as CredentialItem;
+	if (!tempCred) {
 		log('Please generate credentials first!', 'error');
 		return;
 	}
@@ -371,29 +682,42 @@ async function handleRegistrationSubmit(e: Event) {
 		const formData = new FormData(form);
 		
 		// Add credentials to form data (send hash of Xp, not plain Xp)
-		const hashXp = poseidon1([currentCredentials.Xp]);
-		formData.append('voterId', currentCredentials.ID.toString());
-		formData.append('secretX', currentCredentials.X.toString());
+		const hashXp = poseidon1([tempCred.credentials.Xp]);
+		formData.append('voterId', tempCred.credentials.ID.toString());
+		formData.append('secretX', tempCred.credentials.X.toString());
 		formData.append('hashXp', hashXp.toString());
 		
 		const response = await voterAPI.submitRegistration(formData);
 		
-		currentRequestId = response.id;
-		myRequests.unshift(response);
-		
-		// Store in localStorage
-		localStorage.setItem('myRequests', JSON.stringify(myRequests));
-		localStorage.setItem(`credentials_${response.id}`, JSON.stringify(currentCredentials));
+		// Find the credential in the list and add request to it
+		const credInList = credentialsList.find(c => c.id === tempCred.id);
+		if (credInList) {
+			credInList.requests.push(response);
+			saveCredentials();
+		}
 		
 		log(`Registration submitted successfully! Request ID: ${response.id}`, 'success');
-		log('Go to "My Requests" tab to check your status.', 'info');
+		log('Go to "My Credentials" tab to check your requests.', 'info');
 		
-		// Reset form and credentials
+		// Reset form
 		form.reset();
-		submitBtn.disabled = true;
+		const nameInput = document.querySelector('#credentialName') as HTMLInputElement;
+		if (nameInput) nameInput.value = '';
 		
-		// Switch to requests tab
-		switchTab('requests');
+		const regSection = document.querySelector('#registrationSection') as HTMLElement;
+		if (regSection) regSection.style.display = 'none';
+		
+		const credentialsDiv = document.querySelector('#newCredentials');
+		if (credentialsDiv) credentialsDiv.innerHTML = '';
+		
+		// Clear temp
+		delete (window as any).tempCredential;
+		
+		// Switch to credentials tab
+		switchTab('credentials');
+		
+		// Start periodic refresh for this request
+		startRequestRefresh(tempCred.id, response.id);
 	} catch (error) {
 		log(`Error: ${error instanceof Error ? error.message : 'Unknown error'}`, 'error');
 	} finally {
@@ -402,96 +726,118 @@ async function handleRegistrationSubmit(e: Event) {
 	}
 }
 
-function loadMyRequests() {
-	// Load from localStorage
-	const stored = localStorage.getItem('myRequests');
-	if (stored) {
-		myRequests = JSON.parse(stored);
-		
-		// Refresh each request status
-		myRequests.forEach(async (req, index) => {
-			try {
-				const updated = await voterAPI.getRequest(req.id);
-				myRequests[index] = updated;
-				localStorage.setItem('myRequests', JSON.stringify(myRequests));
-				
-				// Re-render if on requests tab
-				const requestsTab = document.querySelector('#tab-requests');
-				if (requestsTab && requestsTab.classList.contains('active')) {
-					requestsTab.innerHTML = renderRequestsTab();
-					// Re-attach refresh button listener
-					const refreshBtn = document.querySelector('#refreshRequests');
-					if (refreshBtn) {
-						refreshBtn.addEventListener('click', loadMyRequests);
-					}
-				}
-			} catch (error) {
-				console.error(`Failed to refresh request ${req.id}:`, error);
+// Refresh request status periodically
+function startRequestRefresh(credId: string, requestId: string) {
+	const interval = setInterval(async () => {
+		try {
+			const cred = credentialsList.find(c => c.id === credId);
+			if (!cred) {
+				clearInterval(interval);
+				return;
 			}
-		});
-	}
-	
-	// Re-render requests tab
-	const requestsTab = document.querySelector('#tab-requests');
-	if (requestsTab) {
-		requestsTab.innerHTML = renderRequestsTab();
-		// Re-attach refresh button listener
-		const refreshBtn = document.querySelector('#refreshRequests');
-		if (refreshBtn) {
-			refreshBtn.addEventListener('click', loadMyRequests);
+			
+			const reqIndex = cred.requests.findIndex(r => r.id === requestId);
+			if (reqIndex === -1) {
+				clearInterval(interval);
+				return;
+			}
+			
+			const updated = await voterAPI.getRequest(requestId);
+			cred.requests[reqIndex] = updated;
+			saveCredentials();
+			
+			// Stop refreshing if not pending anymore
+			if (updated.status !== 'pending') {
+				clearInterval(interval);
+				
+				// Re-render if on credentials tab
+				const credTab = document.querySelector('#tab-credentials');
+				if (credTab && credTab.classList.contains('active')) {
+					credTab.innerHTML = renderCredentialsTab();
+				}
+				
+				// Show notification
+				if (updated.status === 'approved') {
+					log(`✅ Request approved for ${cred.name}!`, 'success');
+				} else if (updated.status === 'rejected' || updated.status === 'auto_rejected') {
+					log(`❌ Request ${updated.status === 'auto_rejected' ? 'auto-rejected' : 'rejected'} for ${cred.name}`, 'error');
+				}
+			}
+		} catch (error) {
+			console.error('Failed to refresh request:', error);
 		}
-	}
+	}, 10000); // Check every 10 seconds
 }
 
-(window as any).loadSignature = async function(requestId: string) {
-	try {
-		log(`Loading signature for request ${requestId}...`);
-		
-		// Load signature from backend
-		const signature = await voterAPI.getSignature(requestId);
-		currentSignature = signature;
-		currentRequestId = requestId;
-		
-		// Load credentials from localStorage
-		const storedCred = localStorage.getItem(`credentials_${requestId}`);
-		if (storedCred) {
-			currentCredentials = JSON.parse(storedCred);
+// Refresh all pending requests periodically
+function startGlobalRefresh() {
+	setInterval(async () => {
+		for (const cred of credentialsList) {
+			for (let i = 0; i < cred.requests.length; i++) {
+				const req = cred.requests[i];
+				if (req.status === 'pending') {
+					try {
+						const updated = await voterAPI.getRequest(req.id);
+						cred.requests[i] = updated;
+						
+						// If status changed, update UI
+						if (updated.status !== 'pending') {
+							saveCredentials();
+							const credTab = document.querySelector('#tab-credentials');
+							if (credTab && credTab.classList.contains('active')) {
+								credTab.innerHTML = renderCredentialsTab();
+							}
+							
+							if (updated.status === 'approved') {
+								log(`✅ Request approved for ${cred.name}!`, 'success');
+							}
+						}
+					} catch (error) {
+						console.error('Failed to refresh request:', error);
+					}
+				}
+			}
 		}
-		
-		log('Signature loaded successfully!', 'success');
-		
-		// Switch to proof tab
-		switchTab('proof');
-	} catch (error) {
-		log(`Error: ${error instanceof Error ? error.message : 'Unknown error'}`, 'error');
-	}
-};
+	}, 15000); // Check every 15 seconds
+}
 
 async function handleGenerateProof() {
-	if (!currentCredentials || !currentSignature) {
-		log('Please load signature data first!', 'error');
+	const selectedCred = getSelectedCredential();
+	if (!selectedCred || !selectedRequestId) {
+		log('Please select a credential and load signature first!', 'error');
+		return;
+	}
+	
+	const request = selectedCred.requests.find(r => r.id === selectedRequestId);
+	if (!request || request.status !== 'approved') {
+		log('Selected request is not approved!', 'error');
 		return;
 	}
 	
 	try {
-		log('Preparing circuit input...');
+		log('Loading signature data...');
 		const btn = document.querySelector('#generateProof') as HTMLButtonElement;
 		btn.disabled = true;
+		
+		// Load signature from backend
+		const signature = await voterAPI.getSignature(selectedRequestId);
+		
+		log('Preparing circuit input...');
 		
 		// Get admin public key from backend
 		const adminPubKey = await voterAPI.getAdminPublicKey();
 		
 		// Convert signature from backend to required format
-		const R8x = BigInt(currentSignature.signatureR8x);
-		const R8y = BigInt(currentSignature.signatureR8y);
-		const S = BigInt(currentSignature.signatureS);
+		const R8x = BigInt(signature.signatureR8x);
+		const R8y = BigInt(signature.signatureR8y);
+		const S = BigInt(signature.signatureS);
 		const Ax = BigInt(adminPubKey.publicKeyX);
 		const Ay = BigInt(adminPubKey.publicKeyY);
 		
 		// Generate circuit input
 		const electionId = 12345n; // Demo election ID
 		const input = await generateVoteInput(
-			currentCredentials,
+			selectedCred.credentials,
 			electionId,
 			{ R8x, R8y, S, Ax, Ay }
 		);
@@ -545,9 +891,12 @@ async function handleGenerateProof() {
 		
 		log('Proof generated successfully!', 'success');
 		
-		// Enable verify buttons
-		const verifyProofBtn = document.querySelector('#verifyProof') as HTMLButtonElement;
-		if (verifyProofBtn) verifyProofBtn.disabled = false;
+		// Re-render proof tab to show verify buttons
+		const proofTab = document.querySelector('#tab-proof');
+		if (proofTab) {
+			proofTab.innerHTML = renderProofTab();
+			attachEventListeners();
+		}
 	} catch (error) {
 		log(`Error: ${error instanceof Error ? error.message : 'Unknown error'}`, 'error');
 	} finally {
@@ -574,12 +923,17 @@ async function handleVerifyProof() {
 			(msg) => log(msg, 'info')
 		);
 		
+		const outputDiv = document.querySelector('#localVerifyOutput');
+		if (outputDiv) {
+			if (isValid) {
+				outputDiv.innerHTML = `<div class="success-box">✅ Proof verified successfully (local)!</div>`;
+			} else {
+				outputDiv.innerHTML = `<div class="error-box">❌ Proof verification failed!</div>`;
+			}
+		}
+		
 		if (isValid) {
 			log('✅ Proof verified successfully (local)!', 'success');
-			
-			// Enable on-chain verification
-			const verifyOnChainBtn = document.querySelector('#verifyOnChain') as HTMLButtonElement;
-			if (verifyOnChainBtn) verifyOnChainBtn.disabled = false;
 		} else {
 			log('❌ Proof verification failed!', 'error');
 		}
@@ -613,6 +967,20 @@ async function handleVerifyOnChain() {
 			currentPublicSignals,
 			(msg) => log(msg, 'info')
 		);
+		
+		const outputDiv = document.querySelector('#onchainVerifyOutput');
+		if (outputDiv) {
+			if (result.success) {
+				outputDiv.innerHTML = `
+					<div class="success-box">
+						✅ Proof verified successfully on-chain!
+						<br><small>TX: <a href="${getExplorerLink(result.txHash!)}" target="_blank">${result.txHash}</a></small>
+					</div>
+				`;
+			} else {
+				outputDiv.innerHTML = `<div class="error-box">❌ On-chain verification failed: ${result.error}</div>`;
+			}
+		}
 		
 		if (result.success) {
 			log('✅ Proof verified successfully on-chain!', 'success');
