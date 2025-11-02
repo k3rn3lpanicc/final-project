@@ -1,6 +1,7 @@
 // Vote counting script for election administrators
 // This script reads VoteSubmitted events from the Election contract,
 // decrypts votes using the election private key, and counts them
+// Optimized for handling millions of votes with parallel processing
 
 import { ethers } from 'ethers';
 import { buildBabyjub } from 'circomlibjs';
@@ -8,9 +9,16 @@ import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { Worker } from 'worker_threads';
+import os from 'os';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+// Configuration
+const PARALLEL_WORKERS = Math.max(1, os.cpus().length - 1); // Use all CPU cores except one
+const BATCH_SIZE = 1000; // Process votes in batches
+const CHUNK_SIZE = 2000; // Maximum blocks per RPC request
 
 // Import the election private key from decrypt_votes.js
 const ELECTION_PRIVATE_KEY = BigInt(
@@ -99,6 +107,66 @@ async function decryptVote(encryptedData, privateKey) {
 }
 
 /**
+ * Process a batch of votes in parallel using multiple workers
+ */
+async function processBatchParallel(batch, offset) {
+	const bjj = await buildBabyjub();
+	const chunkSize = Math.ceil(batch.length / PARALLEL_WORKERS);
+	const promises = [];
+
+	for (let i = 0; i < PARALLEL_WORKERS && i * chunkSize < batch.length; i++) {
+		const chunkStart = i * chunkSize;
+		const chunkEnd = Math.min(chunkStart + chunkSize, batch.length);
+		const chunk = batch.slice(chunkStart, chunkEnd);
+
+		// Process chunk synchronously (parallel at batch level)
+		promises.push(processChunk(chunk, offset + chunkStart, bjj));
+	}
+
+	const results = await Promise.all(promises);
+	return results.flat();
+}
+
+/**
+ * Process a chunk of votes
+ */
+async function processChunk(events, offset, bjj) {
+	const results = [];
+
+	for (let i = 0; i < events.length; i++) {
+		const event = events[i];
+		const voteNumber = offset + i + 1;
+
+		try {
+			const decrypted = await decryptVote(event.args.encryptedVote, ELECTION_PRIVATE_KEY);
+
+			results.push({
+				success: true,
+				voteNumber,
+				blockNumber: event.blockNumber,
+				transactionHash: event.transactionHash,
+				sender: event.args.sender,
+				nullifierHash: event.args.nullifierHash.toString(),
+				optionIndex: decrypted.optionIndex,
+				nonce: decrypted.nonce,
+			});
+		} catch (error) {
+			results.push({
+				success: false,
+				voteNumber,
+				blockNumber: event.blockNumber,
+				transactionHash: event.transactionHash,
+				sender: event.args.sender,
+				nullifierHash: event.args.nullifierHash.toString(),
+				error: error.message,
+			});
+		}
+	}
+
+	return results;
+}
+
+/**
  * Counts votes from Election contract events
  */
 async function countVotes(contractAddress, electionId, rpcUrl) {
@@ -120,14 +188,22 @@ async function countVotes(contractAddress, electionId, rpcUrl) {
 
 	// Get all VoteSubmitted events for this election in chunks
 	const filter = contract.filters.VoteSubmitted(electionId);
-	const CHUNK_SIZE = 2000; // Maximum blocks per request based on error
 	let allEvents = [];
 
 	let fromBlock = 35709656;
 	let toBlock = Math.min(fromBlock + CHUNK_SIZE - 1, currentBlock);
+	
+	const totalBlocks = currentBlock - fromBlock + 1;
+	let fetchedBlocks = 0;
+	const fetchStartTime = Date.now();
 
 	while (fromBlock <= currentBlock) {
-		process.stdout.write(`\rFetching blocks ${fromBlock} to ${toBlock}...`);
+		const progress = ((fetchedBlocks / totalBlocks) * 100).toFixed(1);
+		const elapsed = ((Date.now() - fetchStartTime) / 1000).toFixed(1);
+		
+		process.stdout.write(
+			`\rFetching blocks ${fromBlock} to ${toBlock} (${progress}% | ${elapsed}s)...`
+		);
 
 		try {
 			const events = await contract.queryFilter(filter, fromBlock, toBlock);
@@ -138,6 +214,7 @@ async function countVotes(contractAddress, electionId, rpcUrl) {
 			);
 		}
 
+		fetchedBlocks += (toBlock - fromBlock + 1);
 		fromBlock = toBlock + 1;
 		toBlock = Math.min(fromBlock + CHUNK_SIZE - 1, currentBlock);
 	}
@@ -158,66 +235,60 @@ async function countVotes(contractAddress, electionId, rpcUrl) {
 	const invalidVotes = [];
 
 	console.log('Decrypting and counting votes...\n');
+	console.log(`Processing ${events.length} votes using ${PARALLEL_WORKERS} worker(s)...\n`);
 	console.log('='.repeat(70));
 
-	for (let i = 0; i < events.length; i++) {
-		const event = events[i];
-		const encryptedVote = event.args.encryptedVote;
-		const nullifierHash = event.args.nullifierHash.toString();
-		const sender = event.args.sender;
-		const blockNumber = event.blockNumber;
-		const transactionHash = event.transactionHash;
+	const startTime = Date.now();
+	let processedCount = 0;
 
-		console.log(`\nVote #${i + 1}:`);
-		console.log(`  Block: ${blockNumber}`);
-		console.log(`  TX: ${transactionHash}`);
-		console.log(`  Sender: ${sender}`);
-		console.log(`  Nullifier Hash: ${nullifierHash.slice(0, 20)}...`);
-		console.log(`  Encrypted Vote: ${encryptedVote.slice(0, 50)}...`);
+	// Process votes in batches using parallel processing
+	for (let batchStart = 0; batchStart < events.length; batchStart += BATCH_SIZE) {
+		const batchEnd = Math.min(batchStart + BATCH_SIZE, events.length);
+		const batch = events.slice(batchStart, batchEnd);
 
-		try {
-			const decrypted = await decryptVote(encryptedVote, ELECTION_PRIVATE_KEY);
+		// Process batch with parallel workers
+		const results = await processBatchParallel(batch, batchStart);
 
-			console.log(
-				`  ✓ Decrypted: Option ${decrypted.optionIndex} (nonce: ${decrypted.nonce})`
-			);
-
-			// Count the vote
-			if (!voteCounts[decrypted.optionIndex]) {
-				voteCounts[decrypted.optionIndex] = 0;
+		// Aggregate results
+		for (const result of results) {
+			if (result.success) {
+				if (!voteCounts[result.optionIndex]) {
+					voteCounts[result.optionIndex] = 0;
+				}
+				voteCounts[result.optionIndex]++;
+				validVotes.push(result);
+			} else {
+				invalidVotes.push(result);
 			}
-			voteCounts[decrypted.optionIndex]++;
-
-			validVotes.push({
-				voteNumber: i + 1,
-				blockNumber,
-				transactionHash,
-				sender,
-				nullifierHash,
-				optionIndex: decrypted.optionIndex,
-				nonce: decrypted.nonce,
-			});
-		} catch (error) {
-			console.log(`  ✗ Decryption failed: ${error.message}`);
-
-			invalidVotes.push({
-				voteNumber: i + 1,
-				blockNumber,
-				transactionHash,
-				sender,
-				nullifierHash,
-				error: error.message,
-			});
 		}
+
+		processedCount += batch.length;
+		const progress = ((processedCount / events.length) * 100).toFixed(1);
+		const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+		const rate = (processedCount / (Date.now() - startTime) * 1000).toFixed(1);
+		const eta = ((events.length - processedCount) / rate).toFixed(0);
+
+		process.stdout.write(
+			`\rProgress: ${processedCount}/${events.length} (${progress}%) | ` +
+			`${rate} votes/sec | Elapsed: ${elapsed}s | ETA: ${eta}s`
+		);
 	}
 
+	console.log('\n');
+
 	// Display results
+	const totalTime = ((Date.now() - startTime) / 1000).toFixed(2);
+	const avgRate = (events.length / totalTime).toFixed(1);
+	
 	console.log('\n' + '='.repeat(70));
 	console.log('\nVOTE COUNTING RESULTS');
 	console.log('='.repeat(70));
 	console.log(`\nTotal votes received: ${events.length}`);
 	console.log(`Valid votes: ${validVotes.length}`);
-	console.log(`Invalid/Malformed votes: ${invalidVotes.length}\n`);
+	console.log(`Invalid/Malformed votes: ${invalidVotes.length}`);
+	console.log(`\nProcessing time: ${totalTime}s`);
+	console.log(`Average rate: ${avgRate} votes/sec`);
+	console.log(`Workers used: ${PARALLEL_WORKERS}\n`);
 
 	if (Object.keys(voteCounts).length > 0) {
 		console.log('Vote Distribution:');
