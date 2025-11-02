@@ -5,10 +5,12 @@ import {
 	type VoteCredentials,
 } from './zkUtils';
 import { generateProof, verifyProof, parsePublicSignals, exportProof } from './proofGenerator';
-import { verifyProofOnChain, isMetaMaskInstalled, getVerifierContractAddress, getExplorerLink } from './blockchainVerifier';
+import { isMetaMaskInstalled } from './blockchainVerifier';
 import { voterAPI, type VoterRequest } from './api';
 import { authService } from './auth';
 import { poseidon1 } from 'poseidon-lite';
+import { encryptVoteOption, ELECTION_PUBLIC_KEY } from './encryption';
+import { submitVote, getElectionContractAddress, getExplorerLink as getVoteExplorerLink } from './electionContract';
 
 // Circuit file paths
 const WASM_PATH = '/circuit/VoteScheme.wasm';
@@ -28,6 +30,8 @@ let credentialsList: CredentialItem[] = [];
 let currentProof: any = null;
 let currentPublicSignals: string[] = [];
 let selectedRequestId: string | null = null;
+let selectedOptionIndex: number | null = null;
+let currentElectionOptions: string[] = [];
 
 // DOM Elements
 const app = document.querySelector<HTMLDivElement>('#app')!;
@@ -317,7 +321,7 @@ function renderProofTab() {
 	
 	return `
 		<div class="section">
-			<h2>🔐 Generate Zero-Knowledge Proof</h2>
+			<h2>🗳️ Cast Your Vote</h2>
 			<div class="info-box">
 				<h4>Selected Credential: ${selectedCred.name}</h4>
 				<p>Voter ID: <code>${String(selectedCred.credentials.ID).substring(0, 20)}...</code></p>
@@ -327,8 +331,22 @@ function renderProofTab() {
 				<h4>✅ Selected Request</h4>
 				<p><strong>${selectedRequest?.fullName}</strong> - ${selectedRequest?.passportNumber}</p>
 				<p>Request ID: ${selectedRequestId}</p>
-				<p>Ready to generate proof!</p>
+				<p>Election ID: ${selectedRequest?.electionId || 'N/A'}</p>
 			</div>
+			
+			${currentElectionOptions.length > 0 ? `
+				<div class="section">
+					<h3>📋 Select Your Vote</h3>
+					<div id="voteOptions" class="vote-options">
+						${currentElectionOptions.map((option, index) => `
+							<label class="vote-option ${selectedOptionIndex === index ? 'selected' : ''}">
+								<input type="radio" name="voteOption" value="${index}" ${selectedOptionIndex === index ? 'checked' : ''} />
+								<span class="option-text">${option}</span>
+							</label>
+						`).join('')}
+					</div>
+				</div>
+			` : ''}
 			
 			<button id="generateProof" class="btn btn-primary">🔐 Generate zkSNARK Proof</button>
 			<div id="proofOutput" class="info-box"></div>
@@ -342,11 +360,21 @@ function renderProofTab() {
 			</div>
 			
 			<div class="section">
-				<h2>⛓️ Verify Proof (On-Chain)</h2>
-				<p>Submit your proof to the blockchain for final verification.</p>
-				<button id="verifyOnChain" class="btn btn-success">Verify Proof On-Chain</button>
-				<p class="note">Contract: <a href="${getExplorerLink(getVerifierContractAddress())}" target="_blank">${getVerifierContractAddress()}</a></p>
-				<div id="onchainVerifyOutput"></div>
+				<h2>⛓️ Submit Vote On-Chain</h2>
+				<p>Submit your encrypted vote with zero-knowledge proof to the blockchain.</p>
+				${selectedOptionIndex !== null ? `
+					<div class="info-box">
+						<p><strong>Selected Option:</strong> ${currentElectionOptions[selectedOptionIndex]}</p>
+						<p class="note">Your choice will be encrypted before submission. Only authorized parties can decrypt it.</p>
+					</div>
+					<button id="submitVote" class="btn btn-success">🗳️ Submit Vote to Blockchain</button>
+				` : `
+					<div class="info-box error-box">
+						<p>⚠️ Please select a vote option above before submitting.</p>
+					</div>
+				`}
+				<p class="note">Election Contract: <a href="${getVoteExplorerLink('0x')}" target="_blank">${getElectionContractAddress()}</a></p>
+				<div id="voteSubmitOutput"></div>
 			</div>
 		` : ''}
 	`;
@@ -387,11 +415,28 @@ function attachEventListeners() {
 		verifyProofBtn.addEventListener('click', handleVerifyProof);
 	}
 	
-	// Verify on-chain
-	const verifyOnChainBtn = document.querySelector('#verifyOnChain');
-	if (verifyOnChainBtn) {
-		verifyOnChainBtn.addEventListener('click', handleVerifyOnChain);
+	// Submit vote button
+	const submitVoteBtn = document.querySelector('#submitVote');
+	if (submitVoteBtn) {
+		submitVoteBtn.addEventListener('click', handleSubmitVote);
 	}
+	
+	// Vote option radio buttons
+	const voteOptions = document.querySelectorAll('input[name="voteOption"]');
+	voteOptions.forEach(radio => {
+		radio.addEventListener('change', (e) => {
+			const target = e.target as HTMLInputElement;
+			selectedOptionIndex = parseInt(target.value);
+			log(`Selected option: ${currentElectionOptions[selectedOptionIndex]}`, 'info');
+			
+			// Re-render to update UI
+			const proofTab = document.querySelector('#tab-proof');
+			if (proofTab) {
+				proofTab.innerHTML = renderProofTab();
+				attachEventListeners();
+			}
+		});
+	});
 	
 	// Logout button
 	const logoutBtn = document.querySelector('#logoutBtn');
@@ -587,8 +632,33 @@ function switchTab(tabName: string) {
 			return;
 		}
 		
+		// Get the request
+		const request = cred.requests.find(r => r.id === requestId);
+		if (!request) {
+			log('Request not found!', 'error');
+			return;
+		}
+		
 		// Set the selected request
 		selectedRequestId = requestId;
+		
+		// Load election options for this request
+		if (request.electionId) {
+			try {
+				const elections = await voterAPI.getActiveElections();
+				const election = elections.find(e => e.id === request.electionId);
+				if (election) {
+					currentElectionOptions = election.options || [];
+					log(`Loaded ${currentElectionOptions.length} voting options`, 'info');
+				} else {
+					log('Warning: Election not found for this request', 'error');
+					currentElectionOptions = [];
+				}
+			} catch (error) {
+				console.error('Failed to load election options:', error);
+				currentElectionOptions = [];
+			}
+		}
 		
 		log('Signature loaded successfully!', 'success');
 		
@@ -974,53 +1044,86 @@ async function handleVerifyProof() {
 	}
 }
 
-async function handleVerifyOnChain() {
+async function handleSubmitVote() {
 	if (!currentProof || !currentPublicSignals) {
-		log('Please generate and verify a proof first!', 'error');
+		log('Please generate a proof first!', 'error');
+		return;
+	}
+	
+	if (selectedOptionIndex === null) {
+		log('Please select a vote option!', 'error');
+		return;
+	}
+	
+	if (!selectedRequestId) {
+		log('No request selected!', 'error');
+		return;
+	}
+	
+	const selectedCred = getCredentialForRequest(selectedRequestId);
+	if (!selectedCred) {
+		log('Credential not found!', 'error');
+		return;
+	}
+	
+	const request = selectedCred.requests.find(r => r.id === selectedRequestId);
+	if (!request || request.status !== 'approved') {
+		log('Request is not approved!', 'error');
 		return;
 	}
 	
 	if (!isMetaMaskInstalled()) {
-		log('❌ MetaMask is not installed! Please install MetaMask to verify on-chain.', 'error');
+		log('❌ MetaMask is not installed! Please install MetaMask to submit vote.', 'error');
 		window.open('https://metamask.io/', '_blank');
 		return;
 	}
 	
 	try {
-		log('Preparing on-chain verification...');
-		const btn = document.querySelector('#verifyOnChain') as HTMLButtonElement;
+		log(`Encrypting vote option: ${currentElectionOptions[selectedOptionIndex]}...`);
+		const btn = document.querySelector('#submitVote') as HTMLButtonElement;
 		btn.disabled = true;
 		
-		const result = await verifyProofOnChain(
+		// Encrypt vote option using ElGamal encryption
+		const { encryptedData } = await encryptVoteOption(selectedOptionIndex, ELECTION_PUBLIC_KEY);
+		log('Vote encrypted successfully!', 'success');
+		log(`Encrypted data: ${encryptedData.substring(0, 20)}...`, 'info');
+		
+		// Submit vote to blockchain
+		const result = await submitVote(
 			currentProof,
 			currentPublicSignals,
+			encryptedData,
 			(msg) => log(msg, 'info')
 		);
 		
-		const outputDiv = document.querySelector('#onchainVerifyOutput');
+		const outputDiv = document.querySelector('#voteSubmitOutput');
 		if (outputDiv) {
 			if (result.success) {
 				outputDiv.innerHTML = `
 					<div class="success-box">
-						✅ Proof verified successfully on-chain!
-						<br><small>TX: <a href="${getExplorerLink(result.txHash!)}" target="_blank">${result.txHash}</a></small>
+						<h4>✅ Vote Submitted Successfully!</h4>
+						<p>Your vote has been recorded on the blockchain.</p>
+						${result.txHash ? `
+							<p>Transaction: <a href="${getVoteExplorerLink(result.txHash)}" target="_blank">${result.txHash.substring(0, 10)}...${result.txHash.substring(result.txHash.length - 8)}</a></p>
+						` : ''}
+						<p class="note">Your vote is encrypted and anonymous. Only authorized parties can decrypt the results.</p>
 					</div>
 				`;
+				log('✅ Vote submitted successfully!', 'success');
 			} else {
-				outputDiv.innerHTML = `<div class="error-box">❌ On-chain verification failed: ${result.error}</div>`;
+				outputDiv.innerHTML = `
+					<div class="error-box">
+						<h4>❌ Vote Submission Failed</h4>
+						<p>${result.error || 'Unknown error'}</p>
+					</div>
+				`;
+				log(`❌ Vote submission failed: ${result.error}`, 'error');
 			}
-		}
-		
-		if (result.success) {
-			log('✅ Proof verified successfully on-chain!', 'success');
-			log(`Transaction hash: ${result.txHash}`, 'info');
-		} else {
-			log(`❌ On-chain verification failed: ${result.error}`, 'error');
 		}
 	} catch (error) {
 		log(`Error: ${error instanceof Error ? error.message : 'Unknown error'}`, 'error');
 	} finally {
-		const btn = document.querySelector('#verifyOnChain') as HTMLButtonElement;
+		const btn = document.querySelector('#submitVote') as HTMLButtonElement;
 		if (btn) btn.disabled = false;
 	}
 }
@@ -1193,3 +1296,4 @@ async function handleRegister(e: Event) {
 		submitBtn.textContent = 'Create Account';
 	}
 }
+

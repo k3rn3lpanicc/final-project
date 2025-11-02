@@ -14,3 +14,6 @@ https://honorable-steel-rasalhague.explorer.mainnet.skalenodes.com/address/0xD3D
 Verifier:
 0x9D4891Be53449a35dECC7f03e81ADf7e164445B5
 https://honorable-steel-rasalhague.explorer.mainnet.skalenodes.com/address/0x9D4891Be53449a35dECC7f03e81ADf7e164445B5?tab=contract
+
+Election:
+0x814E3417224f85C0c1508d17076447A1bC8a43b7
