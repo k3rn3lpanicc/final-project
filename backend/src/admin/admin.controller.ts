@@ -44,6 +44,30 @@ export class AdminController {
     return this.adminService.getPublicKey();
   }
 
+  @Get('stats')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Get request statistics',
+    description: 'Get counts of requests by status',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Statistics retrieved successfully',
+    schema: {
+      type: 'object',
+      properties: {
+        pending: { type: 'number' },
+        approved: { type: 'number' },
+        rejected: { type: 'number' },
+        auto_rejected: { type: 'number' },
+      },
+    },
+  })
+  async getStats() {
+    return this.adminService.getStats();
+  }
+
   @Get('requests')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()

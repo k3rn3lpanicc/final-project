@@ -1,5 +1,5 @@
-import './style.css';
-import { authService } from './auth';
+import './styles/login.css';
+import { authService } from './services/auth';
 
 document.addEventListener('DOMContentLoaded', () => {
   // Check if already authenticated

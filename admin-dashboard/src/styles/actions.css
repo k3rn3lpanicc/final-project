@@ -1,0 +1,117 @@
+.action-menu-container {
+  position: relative;
+  display: inline-block;
+}
+
+.btn-menu {
+  background: var(--card-background);
+  color: var(--text-primary);
+  border: 2px solid var(--secondary-color);
+  border-radius: 8px;
+  padding: 10px 16px;
+  font-size: 1em;
+  cursor: pointer;
+  transition: all 0.3s;
+  font-weight: 600;
+  box-shadow: 0 2px 8px rgba(0, 119, 190, 0.3);
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.btn-menu::before {
+  content: '⚙';
+  font-size: 1.1em;
+}
+
+.btn-menu:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 119, 190, 0.5);
+  background: var(--secondary-color);
+}
+
+.btn-menu:active {
+  transform: translateY(0);
+}
+
+.action-menu {
+  display: none;
+  position: fixed;
+  background: var(--card-background);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.6), 0 0 30px rgba(46, 204, 113, 0.15);
+  z-index: 100;
+  min-width: 200px;
+  overflow: hidden;
+}
+
+.action-menu.active {
+  display: block;
+  animation: menuSlide 0.2s ease-out;
+}
+
+@keyframes menuSlide {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.action-menu button {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 14px 20px;
+  border: none;
+  background: transparent;
+  color: var(--text-primary);
+  text-align: left;
+  cursor: pointer;
+  transition: all 0.2s;
+  font-size: 0.95em;
+  border-bottom: 1px solid var(--border);
+  font-weight: 500;
+}
+
+.action-menu button::before {
+  font-size: 1.2em;
+  width: 20px;
+  text-align: center;
+}
+
+.action-menu button:first-child::before {
+  content: 'ℹ️';
+}
+
+.action-menu button.menu-approve::before {
+  content: '✓';
+}
+
+.action-menu button.menu-reject::before {
+  content: '✕';
+}
+
+.action-menu button:last-child {
+  border-bottom: none;
+}
+
+.action-menu button:hover {
+  background: var(--card-hover);
+  padding-left: 25px;
+}
+
+.action-menu button.menu-approve:hover {
+  background: linear-gradient(90deg, rgba(46, 204, 113, 0.3) 0%, rgba(82, 214, 138, 0.2) 100%);
+  color: var(--primary-light);
+}
+
+.action-menu button.menu-reject:hover {
+  background: linear-gradient(90deg, rgba(139, 58, 58, 0.3) 0%, rgba(201, 104, 104, 0.2) 100%);
+  color: #c96868;
+}

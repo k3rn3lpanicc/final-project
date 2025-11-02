@@ -31,6 +31,20 @@ export class AdminService {
     };
   }
 
+  async getStats() {
+    const pending = await this.voterRequestRepository.count({ where: { status: RequestStatus.PENDING } });
+    const approved = await this.voterRequestRepository.count({ where: { status: RequestStatus.APPROVED } });
+    const rejected = await this.voterRequestRepository.count({ where: { status: RequestStatus.REJECTED } });
+    const auto_rejected = await this.voterRequestRepository.count({ where: { status: RequestStatus.AUTO_REJECTED } });
+
+    return {
+      pending,
+      approved,
+      rejected,
+      auto_rejected,
+    };
+  }
+
   async listAllRequests(page: number = 1, limit: number = 10, status?: string) {
     const skip = (page - 1) * limit;
     
@@ -56,6 +70,7 @@ export class AdminService {
       voterId: req.voterId,
       secretX: req.secretX,
       hashXp: req.hashXp,
+      electionId: req.electionId,
       createdAt: req.createdAt,
       passportImagePath: req.passportImagePath,
       photoImagePath: req.photoImagePath,
@@ -113,6 +128,7 @@ export class AdminService {
       voterId: request.voterId,
       secretX: request.secretX,
       hashXp: request.hashXp,
+      electionId: request.electionId,
       passportImagePath: request.passportImagePath,
       photoImagePath: request.photoImagePath,
       adminNotes: request.adminNotes,
