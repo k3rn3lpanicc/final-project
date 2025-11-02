@@ -10,19 +10,25 @@ import {
   StreamableFile,
   Query,
   UseGuards,
+  Delete,
+  Put,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBody, ApiQuery, ApiBearerAuth } from '@nestjs/swagger';
 import { Response } from 'express';
 import { createReadStream, existsSync } from 'fs';
 import { join } from 'path';
 import { AdminService } from './admin.service';
+import { ElectionService } from './election.service';
 import { VoterRequestResponseDto, SignatureDataDto, AdminPublicKeyDto } from '../common/dto';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 
 @ApiTags('admin')
 @Controller('admin')
 export class AdminController {
-  constructor(private readonly adminService: AdminService) {}
+  constructor(
+    private readonly adminService: AdminService,
+    private readonly electionService: ElectionService,
+  ) {}
 
   @Get('public-key')
   @ApiOperation({
@@ -225,5 +231,95 @@ export class AdminController {
     });
 
     return new StreamableFile(file);
+  }
+
+  // Election management endpoints
+  @Post('elections')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Create new election',
+    description: 'Create a new election with name, description and voting options',
+  })
+  @ApiBody({
+    schema: {
+      type: 'object',
+      required: ['name', 'description', 'options'],
+      properties: {
+        name: { type: 'string', example: 'Presidential Election 2024' },
+        description: { type: 'string', example: 'Vote for the next president' },
+        options: { type: 'array', items: { type: 'string' }, example: ['Candidate A', 'Candidate B', 'Candidate C'] },
+      },
+    },
+  })
+  @ApiResponse({ status: 201, description: 'Election created successfully' })
+  async createElection(@Body() body: { name: string; description: string; options: string[] }) {
+    return this.electionService.createElection(body);
+  }
+
+  @Get('elections')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Get all elections',
+    description: 'Retrieve all elections (admin view)',
+  })
+  @ApiResponse({ status: 200, description: 'Elections retrieved successfully' })
+  async getAllElections() {
+    return this.electionService.getAllElections();
+  }
+
+  @Get('elections/:id')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Get election by ID',
+    description: 'Retrieve a specific election details',
+  })
+  @ApiResponse({ status: 200, description: 'Election retrieved successfully' })
+  @ApiResponse({ status: 404, description: 'Election not found' })
+  async getElectionById(@Param('id') id: string) {
+    return this.electionService.getElectionById(parseInt(id, 10));
+  }
+
+  @Put('elections/:id')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Update election',
+    description: 'Update election details or active status',
+  })
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: {
+        name: { type: 'string', example: 'Presidential Election 2024' },
+        description: { type: 'string', example: 'Updated description' },
+        options: { type: 'array', items: { type: 'string' } },
+        isActive: { type: 'boolean', example: true },
+      },
+    },
+  })
+  @ApiResponse({ status: 200, description: 'Election updated successfully' })
+  @ApiResponse({ status: 404, description: 'Election not found' })
+  async updateElection(
+    @Param('id') id: string,
+    @Body() body: { name?: string; description?: string; options?: string[]; isActive?: boolean },
+  ) {
+    return this.electionService.updateElection(parseInt(id, 10), body);
+  }
+
+  @Delete('elections/:id')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Delete election',
+    description: 'Delete an election',
+  })
+  @ApiResponse({ status: 200, description: 'Election deleted successfully' })
+  @ApiResponse({ status: 404, description: 'Election not found' })
+  async deleteElection(@Param('id') id: string) {
+    await this.electionService.deleteElection(parseInt(id, 10));
+    return { message: 'Election deleted successfully' };
   }
 }

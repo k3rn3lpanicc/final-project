@@ -58,6 +58,13 @@ export class CreateVoterRequestDto {
   @IsString()
   @IsNotEmpty()
   hashXp: string;
+
+  @ApiProperty({
+    description: 'Election ID to vote in',
+    example: 1,
+  })
+  @IsNotEmpty()
+  electionId: number;
 }
 
 export class VoterRequestResponseDto {
@@ -87,6 +94,9 @@ export class VoterRequestResponseDto {
 
   @ApiProperty({ example: '11111111111111111111' })
   hashXp: string;
+
+  @ApiProperty({ example: 1 })
+  electionId?: number;
 
   @ApiProperty({ example: '2025-11-01T10:00:00.000Z', required: false })
   createdAt?: Date;

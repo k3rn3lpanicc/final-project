@@ -5,6 +5,7 @@ import { AdminModule } from './admin/admin.module';
 import { AuthModule } from './auth/auth.module';
 import { VoterRequest } from './database/voter-request.entity';
 import { User } from './database/user.entity';
+import { Election } from './database/election.entity';
 import { CryptoService } from './common/crypto.service';
 import * as dotenv from 'dotenv';
 
@@ -16,7 +17,7 @@ dotenv.config();
     TypeOrmModule.forRoot({
       type: 'sqlite',
       database: process.env.DATABASE_PATH || './database.sqlite',
-      entities: [VoterRequest, User],
+      entities: [VoterRequest, User, Election],
       synchronize: true,
       logging: false,
     }),

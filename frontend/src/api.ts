@@ -12,7 +12,18 @@ export interface VoterRequest {
   voterId: string;
   secretX: string;
   hashXp: string; // Hash of secretXp
+  electionId?: number;
   createdAt?: string;
+}
+
+export interface Election {
+  id: number;
+  name: string;
+  description: string;
+  options: string[];
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface SignatureData {
@@ -65,6 +76,13 @@ class VoterAPI {
   async getAdminPublicKey(): Promise<AdminPublicKey> {
     const response = await axios.get<AdminPublicKey>(
       `${this.baseURL}/admin/public-key`
+    );
+    return response.data;
+  }
+
+  async getActiveElections(): Promise<Election[]> {
+    const response = await axios.get<Election[]>(
+      `${this.baseURL}/elections`
     );
     return response.data;
   }

@@ -68,4 +68,7 @@ export class VoterRequest {
 
   @Column({ type: 'text', nullable: true })
   adminNotes: string;
+
+  @Column({ type: 'integer', nullable: true })
+  electionId: number;
 }

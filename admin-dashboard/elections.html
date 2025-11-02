@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Elections Management - Admin Dashboard</title>
+  </head>
+  <body>
+    <div id="app">
+      <header>
+        <div>
+          <h1>Elections Management</h1>
+          <p>Create and manage elections</p>
+        </div>
+        <div style="display: flex; gap: 1rem; align-items: center;">
+          <a href="/dashboard.html" class="btn-secondary">Back to Dashboard</a>
+          <button id="logout-btn" class="logout-btn">Logout</button>
+        </div>
+      </header>
+      
+      <main>
+        <section class="election-create">
+          <h2>Create New Election</h2>
+          <form id="create-election-form">
+            <div class="form-group">
+              <label for="election-name">Election Name *</label>
+              <input type="text" id="election-name" required placeholder="e.g., Presidential Election 2024">
+            </div>
+            <div class="form-group">
+              <label for="election-description">Description *</label>
+              <textarea id="election-description" required placeholder="Election description" rows="3"></textarea>
+            </div>
+            <div class="form-group">
+              <label>Voting Options *</label>
+              <div id="options-container">
+                <div class="option-input">
+                  <input type="text" class="option-field" placeholder="Option 1" required>
+                  <button type="button" class="btn-remove-option" title="Remove option">×</button>
+                </div>
+              </div>
+              <button type="button" id="add-option-btn" class="btn-secondary">+ Add Option</button>
+            </div>
+            <button type="submit" class="btn-primary">Create Election</button>
+          </form>
+        </section>
+
+        <section id="elections">
+          <h2>All Elections</h2>
+          <div id="elections-container">
+            <p>Loading elections...</p>
+          </div>
+        </section>
+      </main>
+    </div>
+    <script type="module" src="/src/elections.ts"></script>
+  </body>
+</html>

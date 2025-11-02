@@ -4678,9 +4678,519 @@ npm run dev
 ---
 
 **Last Updated**: November 2, 2025  
-**Status**: ✅ Production-Ready System with Full Authentication & Authorization  
-**Version**: 4.0.0  
-**Phase**: Phase 16 Complete - Complete System Integration  
+**Status**: ✅ Production-Ready System with Election Management  
+**Version**: 4.1.0  
+**Phase**: Phase 17 Complete - Election Management System  
+**Next Phase**: Security Audit & Mainnet Deployment
+
+---
+
+## Phase 17: Election Management System
+
+### Overview
+
+Added comprehensive election management functionality to the system, allowing admins to create and manage elections while users can select which election they are registering for. This replaces the hardcoded electionId with a dynamic election selection system.
+
+### Key Features Implemented
+
+#### 1. Backend Election System
+
+**Election Entity** (`backend/src/admin/election.entity.ts`):
+- id (numeric, auto-increment) - Used in circuit as electionId
+- name - Election title
+- description - Election details
+- options - JSON array of voting options
+- startDate / endDate - Election timeframe
+- isActive - Enable/disable elections
+- createdBy / createdAt / updatedAt
+
+**Election Service** (`backend/src/admin/election.service.ts`):
+- createElection() - Admin creates new elections
+- getActiveElections() - Public endpoint for users
+- updateElection() - Modify election details
+- deleteElection() - Remove elections
+- toggleElectionStatus() - Activate/deactivate
+
+**API Endpoints**:
+- POST `/admin/elections` - Create election (admin only)
+- GET `/admin/elections` - List all elections (admin only)
+- GET `/admin/elections/:id` - Get election details (admin)
+- PUT `/admin/elections/:id` - Update election (admin)
+- DELETE `/admin/elections/:id` - Delete election (admin)
+- PATCH `/admin/elections/:id/toggle` - Activate/deactivate (admin)
+- GET `/elections/active` - Public list of active elections (voters)
+
+#### 2. Frontend Election Selection
+
+**User Frontend** (`frontend/`):
+- Added election dropdown in registration form
+- Fetches active elections from backend
+- Displays election name and description
+- Stores electionId in voter requests
+- Shows election info in request details
+
+**Request Flow with Elections**:
+```
+1. User creates credentials
+2. User selects election from dropdown
+3. User submits registration for selected election
+4. Admin sees which election user is registering for
+5. Admin approves request
+6. User generates proof with correct electionId
+7. Nullifier includes electionId (prevents cross-election replay)
+```
+
+#### 3. Admin Dashboard Election Management
+
+**Admin Dashboard** (`admin-dashboard/`):
+
+**Elections Tab**:
+- View all elections in table format
+- Create new elections with form
+- Edit existing elections
+- Delete elections (with confirmation)
+- Toggle active/inactive status
+- Display election options as tags
+
+**Election Form**:
+- Name input (required)
+- Description textarea
+- Dynamic option list with "Add Option" button
+- Start date picker
+- End date picker
+- Active status toggle
+- Validation for required fields
+
+**UI Features**:
+- Color-coded active/inactive badges
+- Action dropdown per election (Edit/Delete/Toggle)
+- Modal for create/edit forms
+- Confirmation dialog for deletion
+- Toast notifications for all actions
+- Date formatting (DD/MM/YYYY)
+
+#### 4. Database Schema Updates
+
+**elections table**:
+```sql
+CREATE TABLE elections (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name VARCHAR(255) NOT NULL,
+  description TEXT,
+  options TEXT NOT NULL,  -- JSON array
+  startDate DATETIME,
+  endDate DATETIME,
+  isActive BOOLEAN DEFAULT true,
+  createdBy VARCHAR(255),
+  createdAt DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updatedAt DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+```
+
+**voter_requests table update**:
+```sql
+ALTER TABLE voter_requests ADD COLUMN electionId INTEGER;
+ALTER TABLE voter_requests ADD FOREIGN KEY (electionId) REFERENCES elections(id);
+```
+
+#### 5. Circuit Integration
+
+**electionId in Circuit**:
+- Public input to circuit (part of public signals)
+- Used in nullifier calculation: `nullifier = poseidon([X, Xp, electionId])`
+- Prevents same credential from voting in multiple elections
+- Each election has unique nullifier space
+
+**Why This Matters**:
+- Same user can vote in different elections with same credentials
+- Nullifier prevents double-voting within an election
+- ElectionId creates separate nullifier domains
+- Secure and privacy-preserving
+
+### Technical Implementation Details
+
+#### Backend Changes
+
+**1. Election Module** (`backend/src/admin/election.module.ts`):
+```typescript
+@Module({
+  imports: [TypeOrmModule.forFeature([Election])],
+  controllers: [ElectionsController, AdminController],
+  providers: [ElectionService],
+  exports: [ElectionService],
+})
+export class ElectionModule {}
+```
+
+**2. Voter Request Updates**:
+- Added electionId field to VoterRequest entity
+- Updated DTOs to include electionId
+- Modified signature generation to include electionId context
+- Added election info to request details response
+
+**3. API Security**:
+- Admin endpoints require JWT admin authentication
+- Public endpoints (active elections) require no auth
+- Validation for all inputs
+- Proper error handling
+
+#### Frontend Changes
+
+**1. User Dashboard** (`frontend/src/main.ts`):
+```typescript
+// Load active elections
+const elections = await api.getActiveElections();
+
+// Display in dropdown
+<select id="electionId" required>
+  <option value="">Select an election</option>
+  ${elections.map(e => `
+    <option value="${e.id}">${e.name}</option>
+  `).join('')}
+</select>
+
+// Submit with electionId
+formData.append('electionId', electionId);
+```
+
+**2. Admin Dashboard** (`admin-dashboard/src/main.ts`):
+```typescript
+// Elections management functions
+function showCreateElectionModal()
+function showEditElectionModal(id)
+function deleteElection(id)
+function toggleElectionStatus(id)
+
+// Dynamic option management
+let electionOptions = [];
+function addElectionOption()
+function removeElectionOption(index)
+
+// Render functions
+function renderElectionsTab()
+function renderElectionRow(election)
+```
+
+### User Experience Flow
+
+#### Admin Creates Election:
+1. Admin logs into admin dashboard
+2. Navigates to "Elections" tab
+3. Clicks "Create New Election"
+4. Fills form:
+   - Name: "2024 Presidential Election"
+   - Description: "Vote for the next president"
+   - Options: ["Candidate A", "Candidate B", "Candidate C"]
+   - Start/End dates
+   - Active: ✓
+5. Submits form
+6. Election appears in list
+7. Users can now see this election
+
+#### User Selects Election:
+1. User creates credentials
+2. Sees dropdown with active elections
+3. Selects "2024 Presidential Election"
+4. Uploads documents
+5. Submits registration for that election
+6. Request linked to election in database
+
+#### Admin Reviews Request:
+1. Admin sees request in pending list
+2. Views request details
+3. Sees: "Election: 2024 Presidential Election"
+4. Approves/rejects based on verification
+5. Backend signs with electionId included
+
+#### User Generates Proof:
+1. User loads approved request
+2. Generates proof with electionId from request
+3. Circuit calculates nullifier = poseidon([X, Xp, electionId])
+4. Proof is election-specific
+5. Can verify on-chain with election context
+
+### Security Considerations
+
+**Nullifier Domain Separation**:
+- ElectionId creates separate nullifier spaces
+- Same user can vote once per election
+- Cannot replay vote across elections
+- Cryptographically enforced
+
+**Election Integrity**:
+- Only admins can create/modify elections
+- Public can only view active elections
+- Election options are immutable after creation (best practice)
+- Audit trail with timestamps
+
+**Validation**:
+- Required field validation on forms
+- Date range validation (end after start)
+- At least one voting option required
+- ElectionId must exist when submitting request
+
+### Testing Results
+
+**Backend Tests**:
+```bash
+✅ Create election with valid data
+✅ Get list of all elections (admin)
+✅ Get active elections only (public)
+✅ Update election details
+✅ Delete election
+✅ Toggle election status
+✅ Voter request linked to election
+✅ Election info in request response
+```
+
+**Frontend Tests**:
+```bash
+✅ Load active elections in dropdown
+✅ Display election name and description
+✅ Submit request with electionId
+✅ View election info in request details
+✅ Generate proof with correct electionId
+✅ Circuit verifies with electionId
+```
+
+**Admin Dashboard Tests**:
+```bash
+✅ Display elections table
+✅ Create new election
+✅ Edit existing election
+✅ Delete election with confirmation
+✅ Toggle election status
+✅ Add/remove options dynamically
+✅ Form validation works
+✅ Toast notifications display
+✅ Modal open/close properly
+```
+
+**Integration Tests**:
+```bash
+✅ Admin creates election → User sees it
+✅ User submits for election → Admin sees election in request
+✅ Admin approves → Signature includes electionId
+✅ User generates proof → Circuit uses correct electionId
+✅ Proof verifies with election context
+✅ Different elections have different nullifiers
+```
+
+### Bug Fixes
+
+**Issue 1: EntityMetadataNotFoundError**
+- **Problem**: TypeORM couldn't find Election entity
+- **Solution**: Added Election entity to TypeORM configuration
+- **Fix**: Updated `data-source.ts` to include Election entity
+- **Result**: ✅ Election entity properly registered
+
+**Issue 2: Add Option Button Not Visible**
+- **Problem**: Button had white text on white background
+- **Solution**: Updated CSS for `.btn-outline-secondary`
+- **Fix**: Changed text color to dark on light backgrounds
+- **Result**: ✅ Button visible and clickable
+
+**Issue 3: Single Option Limitation**
+- **Problem**: No way to add multiple voting options
+- **Solution**: Implemented dynamic option array
+- **Fix**: Added "Add Option" button with option management
+- **Result**: ✅ Can add unlimited options
+
+**Issue 4: Options Duplicated in UI**
+- **Problem**: Options displayed twice in list
+- **Solution**: Fixed render loop in option list
+- **Fix**: Properly indexed option rendering
+- **Result**: ✅ Each option appears once
+
+### Database Migration
+
+**Migration Steps**:
+1. TypeORM auto-creates elections table
+2. Adds electionId column to voter_requests
+3. Creates foreign key relationship
+4. Existing requests get NULL electionId (can be handled)
+
+**Backward Compatibility**:
+- Old requests without electionId still work
+- New requests require electionId
+- Circuit handles both cases (though new system requires electionId)
+
+### API Documentation Updates
+
+**Swagger Documentation**:
+All election endpoints documented with:
+- Request/response schemas
+- Example data
+- Authentication requirements
+- Error responses
+- Field descriptions
+
+**Example Election**:
+```json
+{
+  "id": 1,
+  "name": "2024 Presidential Election",
+  "description": "Vote for the next president",
+  "options": ["Candidate A", "Candidate B", "Candidate C"],
+  "startDate": "2024-11-01T00:00:00Z",
+  "endDate": "2024-11-30T23:59:59Z",
+  "isActive": true,
+  "createdBy": "admin",
+  "createdAt": "2024-11-02T00:00:00Z"
+}
+```
+
+### Files Modified
+
+**Backend**:
+- `src/admin/election.entity.ts` - NEW
+- `src/admin/election.service.ts` - NEW
+- `src/admin/election.module.ts` - NEW
+- `src/voters/elections.controller.ts` - NEW
+- `src/admin/admin.controller.ts` - UPDATED (elections endpoints)
+- `src/database/voter-request.entity.ts` - UPDATED (electionId field)
+- `src/common/dto.ts` - UPDATED (electionId in DTO)
+- `src/voters/voters.service.ts` - UPDATED (handle electionId)
+- `src/database/data-source.ts` - UPDATED (Election entity)
+- `src/app.module.ts` - UPDATED (import ElectionModule)
+
+**Frontend**:
+- `frontend/src/api.ts` - UPDATED (election API calls)
+- `frontend/src/main.ts` - UPDATED (election dropdown)
+- `frontend/src/style.css` - UPDATED (election UI styles)
+
+**Admin Dashboard**:
+- `admin-dashboard/src/api.ts` - UPDATED (election API calls)
+- `admin-dashboard/src/main.ts` - UPDATED (elections tab)
+- `admin-dashboard/src/style.css` - UPDATED (election form styles)
+
+### Commands to Test Election System
+
+**Start All Services**:
+```bash
+# Terminal 1 - Backend
+cd backend
+npm start
+
+# Terminal 2 - Frontend
+cd frontend
+npm run dev
+
+# Terminal 3 - Admin Dashboard
+cd admin-dashboard
+npm run dev
+```
+
+**Test Election Flow**:
+```bash
+# As Admin (http://localhost:5173):
+1. Login to admin dashboard
+2. Go to "Elections" tab
+3. Click "Create New Election"
+4. Fill form with election details
+5. Add multiple voting options
+6. Save election
+
+# As User (http://localhost:5174):
+1. Login/Register as voter
+2. Create credentials
+3. See election dropdown (shows admin's election)
+4. Select the election
+5. Submit registration
+6. Wait for approval
+
+# As Admin:
+7. See request with election info
+8. Approve request
+
+# As User:
+9. Generate proof (uses correct electionId)
+10. Verify proof locally and on-chain ✅
+```
+
+### Key Achievements - Phase 17
+
+✅ **Dynamic Election Management**:
+- Admins can create unlimited elections
+- Each with unique ID, name, description, options
+- Start/end dates for election periods
+- Active/inactive status control
+
+✅ **User Election Selection**:
+- Voters choose which election to register for
+- Can register for multiple elections (separate requests)
+- Clear election info displayed throughout
+
+✅ **Circuit Integration**:
+- ElectionId properly integrated into circuit
+- Nullifier domain separation working
+- Prevents cross-election vote replay
+
+✅ **Enhanced Admin Dashboard**:
+- Complete election management UI
+- Create, edit, delete, toggle elections
+- View all elections in table
+- Dynamic option management
+
+✅ **Database Schema**:
+- Proper relationships between elections and requests
+- Foreign key constraints
+- Migration support
+
+✅ **API Security**:
+- Admin-only election management
+- Public active election viewing
+- Proper authentication/authorization
+
+### System Benefits
+
+**For Admins**:
+- Easy election creation and management
+- Full control over active elections
+- Clear visibility of which elections users are registering for
+- Flexible election configuration
+
+**For Users**:
+- Clear election selection
+- Know exactly what they're voting for
+- Can participate in multiple elections
+- Transparent election information
+
+**For System**:
+- Scalable to unlimited elections
+- Proper nullifier domain separation
+- Audit trail of all elections
+- Clean database relationships
+
+### Future Election Enhancements
+
+**Potential Features**:
+- [ ] Election results tallying
+- [ ] Voter turnout statistics per election
+- [ ] Election templates
+- [ ] Recurring elections
+- [ ] Multi-round elections
+- [ ] Election categories/tags
+- [ ] Advanced filtering (past/current/future)
+- [ ] Election search functionality
+- [ ] Export election data
+- [ ] Election analytics dashboard
+
+**Advanced Features**:
+- [ ] Weighted voting
+- [ ] Ranked-choice voting
+- [ ] Delegate voting
+- [ ] Vote delegation
+- [ ] Conditional voting rules
+- [ ] Multi-option selection
+- [ ] Vote verification portal
+
+---
+
+**Last Updated**: November 2, 2025  
+**Status**: ✅ Production-Ready System with Election Management  
+**Version**: 4.1.0  
+**Phase**: Phase 17 Complete - Election Management System  
 **Next Phase**: Security Audit & Mainnet Deployment
 
 ---

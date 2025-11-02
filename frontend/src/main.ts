@@ -279,6 +279,12 @@ function renderRegisterTab() {
 						<input type="text" id="nationality" name="nationality" required />
 					</div>
 					<div class="form-group">
+						<label for="electionId">Election:</label>
+						<select id="electionId" name="electionId" required>
+							<option value="">Select an election...</option>
+						</select>
+					</div>
+					<div class="form-group">
 						<label for="passportImage">Passport Image:</label>
 						<input type="file" id="passportImage" name="passportImage" accept="image/*" required />
 					</div>
@@ -393,8 +399,10 @@ function attachEventListeners() {
 	const registrationForm = document.querySelector('#registrationForm');
 	if (registrationForm) {
 		registrationForm.addEventListener('submit', handleRegistrationSubmit);
+		// Load elections when form is visible
+		loadElections();
 	}
-	
+
 	// Proof generation
 	const generateProofBtn = document.querySelector('#generateProof');
 	if (generateProofBtn) {
@@ -696,6 +704,35 @@ async function handleGenerateCredentials() {
 	}
 }
 
+// Load active elections into dropdown
+async function loadElections() {
+	try {
+		const elections = await voterAPI.getActiveElections();
+		const select = document.querySelector('#electionId') as HTMLSelectElement;
+		if (!select) return;
+
+		// Clear existing options except the first one
+		while (select.options.length > 1) {
+			select.remove(1);
+		}
+
+		// Add active elections
+		elections.forEach(election => {
+			const option = document.createElement('option');
+			option.value = election.id.toString();
+			option.textContent = `${election.name} - ${election.description}`;
+			select.appendChild(option);
+		});
+
+		if (elections.length === 0) {
+			log('No active elections available. Please contact admin.', 'error');
+		}
+	} catch (error) {
+		console.error('Error loading elections:', error);
+		log('Failed to load elections', 'error');
+	}
+}
+
 async function handleRegistrationSubmit(e: Event) {
 	e.preventDefault();
 	
@@ -867,7 +904,7 @@ async function handleGenerateProof() {
 		const Ay = BigInt(adminPubKey.publicKeyY);
 		
 		// Generate circuit input
-		const electionId = 12345n; // Demo election ID
+		const electionId = BigInt(request.electionId || 12345); // Use election ID from request
 		const input = await generateVoteInput(
 			selectedCred.credentials,
 			electionId,

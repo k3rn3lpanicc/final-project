@@ -30,7 +30,7 @@ export class VotersController {
   @ApiBody({
     schema: {
       type: 'object',
-      required: ['fullName', 'passportNumber', 'dateOfBirth', 'nationality', 'voterId', 'secretX', 'hashXp', 'passportImage', 'photo'],
+      required: ['fullName', 'passportNumber', 'dateOfBirth', 'nationality', 'voterId', 'secretX', 'hashXp', 'passportImage', 'photo', 'electionId'],
       properties: {
         fullName: { type: 'string', example: 'John Doe' },
         passportNumber: { type: 'string', example: 'AB1234567' },
@@ -39,6 +39,7 @@ export class VotersController {
         voterId: { type: 'string', example: '12345678901234567890123456789012345678901234567890' },
         secretX: { type: 'string', example: '98765432109876543210987654321098765432109876543210' },
         hashXp: { type: 'string', example: '11111111111111111111111111111111111111111111111111' },
+        electionId: { type: 'number', example: 1 },
         passportImage: {
           type: 'string',
           format: 'binary',

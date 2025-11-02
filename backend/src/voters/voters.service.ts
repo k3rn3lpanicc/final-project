@@ -42,6 +42,7 @@ export class VotersService {
       voterId: dto.voterId,
       secretX: dto.secretX,
       hashXp: dto.hashXp,
+      electionId: dto.electionId,
       status: RequestStatus.PENDING,
     });
 
@@ -57,6 +58,7 @@ export class VotersService {
       voterId: saved.voterId,
       secretX: saved.secretX,
       hashXp: saved.hashXp,
+      electionId: saved.electionId,
       createdAt: saved.createdAt,
     };
   }
@@ -78,6 +80,7 @@ export class VotersService {
       voterId: request.voterId,
       secretX: request.secretX,
       hashXp: request.hashXp,
+      electionId: request.electionId,
       createdAt: request.createdAt,
     };
   }

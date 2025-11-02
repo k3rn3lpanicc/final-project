@@ -49,6 +49,7 @@ export interface Request {
   voterId: string;
   secretX: string;
   hashXp: string; // Hash of secretXp
+  electionId?: number;
   createdAt?: string;
   passportImagePath?: string;
   photoImagePath?: string;
@@ -59,6 +60,16 @@ export interface Request {
     publicKeyX: string;
     publicKeyY: string;
   };
+}
+
+export interface Election {
+  id: number;
+  name: string;
+  description: string;
+  options: string[];
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface PaginatedResponse<T> {
@@ -132,5 +143,35 @@ export const api = {
       responseType: 'blob'
     });
     return URL.createObjectURL(response.data);
+  },
+
+  // Election management APIs
+  async createElection(data: { name: string; description: string; options: string[] }): Promise<Election> {
+    const response = await axios.post(`${API_BASE_URL}/admin/elections`, data);
+    return response.data;
+  },
+
+  async getAllElections(): Promise<Election[]> {
+    const response = await axios.get(`${API_BASE_URL}/admin/elections`);
+    return response.data;
+  },
+
+  async getElectionById(id: number): Promise<Election> {
+    const response = await axios.get(`${API_BASE_URL}/admin/elections/${id}`);
+    return response.data;
+  },
+
+  async updateElection(id: number, data: Partial<Election>): Promise<Election> {
+    const response = await axios.put(`${API_BASE_URL}/admin/elections/${id}`, data);
+    return response.data;
+  },
+
+  async deleteElection(id: number): Promise<void> {
+    await axios.delete(`${API_BASE_URL}/admin/elections/${id}`);
+  },
+
+  async getActiveElections(): Promise<Election[]> {
+    const response = await axios.get(`${API_BASE_URL}/elections`);
+    return response.data;
   }
 };
