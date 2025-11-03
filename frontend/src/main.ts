@@ -1,82 +1,76 @@
 import './style.css';
-import {
-	generateRandomField,
-	generateVoteInput,
-	type VoteCredentials,
-} from './zkUtils';
-import { generateProof, verifyProof, parsePublicSignals, exportProof } from './proofGenerator';
+import { generateRandomField, generateVoteInput, type VoteCredentials } from './zkUtils';
+import { generateProof, verifyProof } from './proofGenerator';
 import { isMetaMaskInstalled } from './blockchainVerifier';
-import { voterAPI, type VoterRequest } from './api';
+import { voterAPI, type Election } from './api';
 import { authService } from './auth';
 import { poseidon1 } from 'poseidon-lite';
-import { encryptVoteOption, ELECTION_PUBLIC_KEY } from './encryption';
-import { submitVote, getElectionContractAddress, getExplorerLink as getVoteExplorerLink } from './electionContract';
+import { encryptVoteOption } from './encryption';
+import { submitVote, getExplorerLink as getVoteExplorerLink } from './electionContract';
 
 // Circuit file paths
 const WASM_PATH = '/circuit/VoteScheme.wasm';
 const ZKEY_PATH = '/circuit/VoteScheme_final.zkey';
 const VKEY_PATH = '/circuit/verification_key.json';
 
-// Store multiple credentials with metadata
-interface CredentialItem {
-	id: string; // Unique ID for this credential
+// Simplified credential storage - one per election
+interface VoterCredentialData {
+	electionId: number;
 	credentials: VoteCredentials;
+	requestId?: string;
+	requestStatus?: 'pending' | 'approved' | 'rejected' | 'auto_rejected';
 	createdAt: number;
-	name: string; // User-friendly name
-	requests: VoterRequest[]; // All requests for this credential
 }
 
-let credentialsList: CredentialItem[] = [];
-let currentProof: any = null;
-let currentPublicSignals: string[] = [];
-let selectedRequestId: string | null = null;
-let selectedOptionIndex: number | null = null;
-let currentElectionOptions: string[] = [];
+let voterCredentials: Map<number, VoterCredentialData> = new Map();
+let elections: Election[] = [];
+let selectedElectionId: number | null = null;
 
 // DOM Elements
 const app = document.querySelector<HTMLDivElement>('#app')!;
 
 // Load credentials from localStorage
 function loadCredentials() {
-	const stored = localStorage.getItem('voterCredentials');
+	const stored = localStorage.getItem('simplifiedVoterCredentials');
 	if (stored) {
 		try {
 			const parsed = JSON.parse(stored);
-			// Convert BigInt strings back to BigInt
-			credentialsList = parsed.map((item: any) => ({
-				...item,
-				credentials: {
-					ID: BigInt(item.credentials.ID),
-					X: BigInt(item.credentials.X),
-					Xp: BigInt(item.credentials.Xp),
-				}
-			}));
-			console.log('Loaded credentials from localStorage:', credentialsList.length);
+			voterCredentials = new Map(
+				Object.entries(parsed).map(([key, value]: [string, any]) => [
+					parseInt(key),
+					{
+						...value,
+						credentials: {
+							ID: BigInt(value.credentials.ID),
+							X: BigInt(value.credentials.X),
+							Xp: BigInt(value.credentials.Xp),
+						},
+					},
+				])
+			);
+			console.log('Loaded credentials from localStorage:', voterCredentials.size);
 		} catch (e) {
 			console.error('Failed to parse credentials:', e);
-			credentialsList = [];
+			voterCredentials = new Map();
 		}
 	}
 }
 
 // Save credentials to localStorage
 function saveCredentials() {
-	// Convert BigInt to string for JSON storage
-	const toSave = credentialsList.map(item => ({
-		...item,
-		credentials: {
-			ID: item.credentials.ID.toString(),
-			X: item.credentials.X.toString(),
-			Xp: item.credentials.Xp.toString(),
-		}
-	}));
-	localStorage.setItem('voterCredentials', JSON.stringify(toSave));
-	console.log('Saved credentials to localStorage:', credentialsList.length);
-}
-
-// Get credential for a specific request
-function getCredentialForRequest(requestId: string): CredentialItem | null {
-	return credentialsList.find(c => c.requests.some(r => r.id === requestId)) || null;
+	const toSave: any = {};
+	voterCredentials.forEach((value, key) => {
+		toSave[key] = {
+			...value,
+			credentials: {
+				ID: value.credentials.ID.toString(),
+				X: value.credentials.X.toString(),
+				Xp: value.credentials.Xp.toString(),
+			},
+		};
+	});
+	localStorage.setItem('simplifiedVoterCredentials', JSON.stringify(toSave));
+	console.log('Saved credentials to localStorage:', voterCredentials.size);
 }
 
 function log(message: string, type: 'info' | 'success' | 'error' = 'info') {
@@ -93,9 +87,9 @@ function log(message: string, type: 'info' | 'success' | 'error' = 'info') {
 }
 
 // Initialize app
-function initApp() {
-	loadCredentials(); // Load saved credentials
-	
+async function initApp() {
+	loadCredentials();
+
 	app.innerHTML = `
 		<div class="container">
 			<header>
@@ -108,336 +102,698 @@ function initApp() {
 				</div>
 			</header>
 			
-			<nav class="tabs">
-				<button class="tab active" data-tab="credentials">My Credentials</button>
-				<button class="tab" data-tab="register">Register New</button>
-				<button class="tab" data-tab="proof">Generate Proof</button>
-			</nav>
-			
-			<div class="tab-content">
-				<div id="tab-credentials" class="tab-pane active">
-					${renderCredentialsTab()}
+			<div class="main-content">
+				<div id="electionsSection">
+					${renderElectionsSection()}
 				</div>
-				<div id="tab-register" class="tab-pane">
-					${renderRegisterTab()}
-				</div>
-				<div id="tab-proof" class="tab-pane">
-					${renderProofTab()}
+				
+				<div id="votingSection" style="display: none;">
+					${renderVotingSection()}
 				</div>
 			</div>
 			
-			<div id="log" class="log"></div>
+			<div id="log" class="log" style="max-height: 200px; overflow-y: auto;"></div>
 		</div>
 	`;
-	
+
 	attachEventListeners();
-	startGlobalRefresh(); // Start refreshing all pending requests
+	await loadElections();
 }
 
-function renderCredentialsTab() {
-	if (credentialsList.length === 0) {
-		return `
-			<div class="empty-state">
-				<h2>📋 No Credentials Yet</h2>
-				<p>You haven't created any voter credentials yet.</p>
-				<p>Go to the "Register New" tab to create your first credential and submit a registration request.</p>
-			</div>
-		`;
-	}
-	
+function renderElectionsSection() {
 	return `
 		<div class="section">
-			<h2>📋 My Voter Credentials</h2>
-			<p class="note">Manage your voter credentials and their registration requests. Select a credential to generate proofs.</p>
-			<div class="credentials-grid">
-				${credentialsList.map(cred => renderCredentialCard(cred)).join('')}
+			<h2>🗳️ Available Elections</h2>
+			<p>Select an election to participate in</p>
+			<div id="electionsList" class="elections-grid">
+				${
+					elections.length === 0
+						? '<p>Loading elections...</p>'
+						: elections.map((e) => renderElectionCard(e)).join('')
+				}
 			</div>
 		</div>
 	`;
 }
 
-function renderCredentialCard(cred: CredentialItem) {
-	const approvedRequests = cred.requests.filter(r => r.status === 'approved');
-	const pendingRequests = cred.requests.filter(r => r.status === 'pending');
-	const hasApproved = approvedRequests.length > 0;
-	
-	
+function renderElectionCard(election: Election) {
+	const credData = voterCredentials.get(election.id);
+	const hasCredential = !!credData;
+	const hasRequest = hasCredential && credData.requestId;
+	const isApproved = hasRequest && credData.requestStatus === 'approved';
+	const isPending = hasRequest && credData.requestStatus === 'pending';
+	const isRejected =
+		hasRequest &&
+		(credData.requestStatus === 'rejected' || credData.requestStatus === 'auto_rejected');
+
+	let statusBadge = '';
+	let actionButton = '';
+
+	if (isApproved) {
+		statusBadge = '<span class="badge badge-success">✓ Ready to Vote</span>';
+		actionButton = `<button class="btn btn-success" onclick="window.startVoting(${election.id})">🗳️ Vote Now</button>`;
+	} else if (isPending) {
+		statusBadge = '<span class="badge badge-warning">⏳ Pending Approval</span>';
+		actionButton = `<button class="btn btn-secondary" disabled>Waiting for Admin</button>`;
+	} else if (isRejected) {
+		statusBadge = '<span class="badge badge-danger">❌ Rejected</span>';
+		actionButton = `<button class="btn btn-primary" onclick="window.registerForElection(${election.id})">📝 Register Again</button>`;
+	} else {
+		statusBadge = '<span class="badge badge-secondary">Not Registered</span>';
+		actionButton = `<button class="btn btn-primary" onclick="window.registerForElection(${election.id})">📝 Register to Vote</button>`;
+	}
+
 	return `
-		<div class="credential-card " data-credential-id="${cred.id}">
-			<div class="credential-header">
-				<div>
-					<h3>${cred.name}</h3>
-					<span class="credential-date">Created: ${new Date(cred.createdAt).toLocaleDateString()}</span>
-				</div>
-				${hasApproved ? '<span class="badge badge-success">✓ Approved</span>' : 
-				  pendingRequests.length > 0 ? '<span class="badge badge-warning">⏳ Pending</span>' :
-				  '<span class="badge badge-secondary">No Requests</span>'}
+		<div class="election-card">
+			<div class="election-header">
+				<h3>${election.name}</h3>
+				${statusBadge}
 			</div>
-			
-			<div class="credential-info">
-				<div class="info-row">
-					<span class="label">Voter ID:</span>
-					<span class="value-short" title="${cred.credentials.ID.toString()}">${String(cred.credentials.ID).substring(0, 16)}...</span>
+			<div class="election-body">
+				<p class="election-description">${election.description || 'No description available'}</p>
+				<div class="election-meta">
+					<span class="meta-item">📋 Election ID: ${election.id}</span>
+					<span class="meta-item">📊 ${election.options?.length || 0} Options</span>
+					<span class="meta-item">${election.isActive ? '🟢 Active' : '🔴 Inactive'}</span>
 				</div>
-				<div class="info-row">
-					<span class="label">Requests:</span>
-					<span class="value">${cred.requests.length} total</span>
-				</div>
-				${approvedRequests.length > 0 ? `
-					<div class="info-row">
-						<span class="label">Status:</span>
-						<span class="value success">✓ ${approvedRequests.length} Approved</span>
+				${
+					election.options && election.options.length > 0
+						? `
+					<div class="election-options-preview">
+						<strong>Options:</strong> ${election.options.join(', ')}
 					</div>
-				` : ''}
+				`
+						: ''
+				}
 			</div>
-			
-			<div class="credential-actions">
-				<button class="btn btn-sm btn-success" onclick="window.submitNewRequestForCredential('${cred.id}')">
-					📤 New Request
-				</button>
-				<button class="btn btn-sm btn-secondary" onclick="window.viewCredentialDetails('${cred.id}')">
-					📋 Details
-				</button>
-				<button class="btn btn-sm btn-info" onclick="window.downloadCredential('${cred.id}')">
-					💾 Download
-				</button>
-				${!hasApproved ? `
-					<button class="btn btn-sm btn-danger" onclick="window.deleteCredential('${cred.id}')">
-						🗑️ Delete
-					</button>
-				` : ''}
+			<div class="election-actions">
+				${actionButton}
 			</div>
-			
-			${cred.requests.length > 0 ? `
-				<div class="credential-requests">
-					<h4>Registration Requests:</h4>
-					${cred.requests.map(req => renderMiniRequestCard(req)).join('')}
-				</div>
-			` : ''}
 		</div>
 	`;
 }
 
-function renderMiniRequestCard(request: VoterRequest) {
-	const statusClass = request.status === 'approved' ? 'status-approved' :
-	                    (request.status === 'rejected' || request.status === 'auto_rejected') ? 'status-rejected' : 'status-pending';
-	
-	return `
-		<div class="mini-request-card">
-			<div class="mini-request-header">
-				<span class="mini-request-id" title="${request.id}">${request.id.substring(0, 8)}...</span>
-				<span class="status-badge ${statusClass}">${request.status === 'auto_rejected' ? 'AUTO REJECTED' : request.status.toUpperCase()}</span>
-			</div>
-			<div class="mini-request-body">
-				<p><strong>${request.fullName}</strong> - ${request.passportNumber}</p>
-				<p class="mini-request-date">${new Date(request.createdAt || '').toLocaleString()}</p>
-			</div>
-			${request.status === 'approved' ? `
-				<button class="btn btn-xs btn-success" onclick="window.loadSignatureForProof('${request.id}')">
-					Generate Proof →
-				</button>
-			` : ''}
-		</div>
-	`;
-}
+function renderVotingSection() {
+	if (!selectedElectionId) return '';
 
-function renderRegisterTab() {
+	const election = elections.find((e) => e.id === selectedElectionId);
+	const credData = voterCredentials.get(selectedElectionId);
+
+	if (!election || !credData) return '';
+
 	return `
 		<div class="section">
-			<h2>🆕 Create New Voter Credential</h2>
-			<p>Generate new credentials and submit a registration request to the admin.</p>
+			<button class="btn btn-secondary" onclick="window.backToElections()">← Back to Elections</button>
 			
-			<div class="form-section">
-				<h3>Step 1: Generate Credentials</h3>
-				<div class="input-group">
-					<input type="text" id="credentialName" placeholder="Enter a name for this credential (e.g., 'Main Account', 'Backup')" />
-				</div>
-				<button id="generateCred" class="btn btn-primary">🎲 Generate New Credentials</button>
-				<div id="newCredentials" class="info-box"></div>
-			</div>
+			<h2>🗳️ Voting: ${election.name}</h2>
 			
-			<div class="form-section" id="registrationSection" style="display: none;">
-				<h3>Step 2: Submit Registration</h3>
-				<p>Upload your documents and personal information to register for voting.</p>
-				<form id="registrationForm" class="form">
-					<div class="form-group">
-						<label for="fullName">Full Name:</label>
-						<input type="text" id="fullName" name="fullName" required />
-					</div>
-					<div class="form-group">
-						<label for="passportNumber">Passport Number:</label>
-						<input type="text" id="passportNumber" name="passportNumber" required />
-					</div>
-					<div class="form-group">
-						<label for="dateOfBirth">Date of Birth:</label>
-						<input type="date" id="dateOfBirth" name="dateOfBirth" required />
-					</div>
-					<div class="form-group">
-						<label for="nationality">Nationality:</label>
-						<input type="text" id="nationality" name="nationality" required />
-					</div>
-					<div class="form-group">
-						<label for="electionId">Election:</label>
-						<select id="electionId" name="electionId" required>
-							<option value="">Select an election...</option>
-						</select>
-					</div>
-					<div class="form-group">
-						<label for="passportImage">Passport Image:</label>
-						<input type="file" id="passportImage" name="passportImage" accept="image/*" required />
-					</div>
-					<div class="form-group">
-						<label for="photo">Your Photo:</label>
-						<input type="file" id="photo" name="photo" accept="image/*" required />
-					</div>
-					<button type="submit" id="submitRegistration" class="btn btn-primary">📤 Submit Registration</button>
-				</form>
-			</div>
-		</div>
-	`;
-}
-
-function renderProofTab() {
-	if (!selectedRequestId) {
-		return `
-			<div class="empty-state">
-				<h2>🔐 No Request Selected</h2>
-				<p>Please go to "My Credentials" tab and click "Generate Proof" on an approved request.</p>
-			</div>
-		`;
-	}
-	
-	const selectedCred = getCredentialForRequest(selectedRequestId);
-	if (!selectedCred) {
-		return `
-			<div class="empty-state">
-				<h2>❌ Error</h2>
-				<p>Could not find credential for selected request.</p>
-			</div>
-		`;
-	}
-	
-	const selectedRequest = selectedCred.requests.find(r => r.id === selectedRequestId);
-	
-	return `
-		<div class="section">
-			<h2>🗳️ Cast Your Vote</h2>
-			<div class="info-box">
-				<h4>Selected Credential: ${selectedCred.name}</h4>
-				<p>Voter ID: <code>${String(selectedCred.credentials.ID).substring(0, 20)}...</code></p>
-			</div>
-			
-			<div class="info-box success-box">
-				<h4>✅ Selected Request</h4>
-				<p><strong>${selectedRequest?.fullName}</strong> - ${selectedRequest?.passportNumber}</p>
-				<p>Request ID: ${selectedRequestId}</p>
-				<p>Election ID: ${selectedRequest?.electionId || 'N/A'}</p>
-			</div>
-			
-			${currentElectionOptions.length > 0 ? `
-				<div class="section">
-					<h3>📋 Select Your Vote</h3>
-					<div id="voteOptions" class="vote-options">
-						${currentElectionOptions.map((option, index) => `
-							<label class="vote-option ${selectedOptionIndex === index ? 'selected' : ''}">
-								<input type="radio" name="voteOption" value="${index}" ${selectedOptionIndex === index ? 'checked' : ''} />
+			<div class="voting-container">
+				<div id="voteOptionsSection" class="vote-section">
+					<h3>Select Your Choice</h3>
+					<div class="vote-options">
+						${election.options
+							.map(
+								(option, index) => `
+							<label class="vote-option">
+								<input type="radio" name="voteOption" value="${index}" />
 								<span class="option-text">${option}</span>
 							</label>
-						`).join('')}
+						`
+							)
+							.join('')}
 					</div>
 				</div>
-			` : ''}
-			
-			<button id="generateProof" class="btn btn-primary">🔐 Generate zkSNARK Proof</button>
-			<div id="proofOutput" class="info-box"></div>
+				
+				<div class="vote-actions">
+					<button id="castVoteBtn" class="btn btn-success btn-lg" disabled>
+						🗳️ Cast Vote
+					</button>
+				</div>
+				
+				<div id="votingProgress" style="display: none;" class="voting-progress">
+					<h3>Voting in Progress...</h3>
+					<div class="progress-steps">
+						<div class="progress-step" id="step-proof">
+							<div class="step-icon">⏳</div>
+							<div class="step-text">Generating Zero-Knowledge Proof...</div>
+						</div>
+						<div class="progress-step" id="step-verify">
+							<div class="step-icon">⏳</div>
+							<div class="step-text">Verifying Proof Locally...</div>
+						</div>
+						<div class="progress-step" id="step-submit">
+							<div class="step-icon">⏳</div>
+							<div class="step-text">Submitting to Blockchain...</div>
+						</div>
+					</div>
+				</div>
+				
+				<div id="voteResult" style="display: none;" class="vote-result">
+				</div>
+				
+				<div class="technical-info collapsed">
+					<button class="btn btn-sm btn-secondary" onclick="window.toggleTechnicalInfo()">
+						📊 Show Technical Details
+					</button>
+					<div id="technicalDetails" style="display: none;">
+						<h4>Credentials</h4>
+						<button class="btn btn-xs btn-info" onclick="window.downloadCredentials()">💾 Download Credentials</button>
+						<pre style="font-size: 0.75rem; overflow-x: auto;">${JSON.stringify(
+							{
+								voterId:
+									credData.credentials.ID.toString().substring(0, 20) + '...',
+								electionId: selectedElectionId,
+							},
+							null,
+							2
+						)}</pre>
+						
+						<div id="proofDetails" style="display: none;">
+							<h4>Generated Proof</h4>
+							<button class="btn btn-xs btn-info" onclick="window.downloadProof()">💾 Download Proof</button>
+							<pre id="proofData" style="font-size: 0.75rem; overflow-x: auto;"></pre>
+						</div>
+					</div>
+				</div>
+			</div>
 		</div>
-		
-		${currentProof ? `
-			<div class="section">
-				<h2>✅ Verify Proof (Local)</h2>
-				<button id="verifyProof" class="btn btn-primary">Verify Proof Locally</button>
-				<div id="localVerifyOutput"></div>
-			</div>
-			
-			<div class="section">
-				<h2>⛓️ Submit Vote On-Chain</h2>
-				<p>Submit your encrypted vote with zero-knowledge proof to the blockchain.</p>
-				${selectedOptionIndex !== null ? `
-					<div class="info-box">
-						<p><strong>Selected Option:</strong> ${currentElectionOptions[selectedOptionIndex]}</p>
-						<p class="note">Your choice will be encrypted before submission. Only authorized parties can decrypt it.</p>
-					</div>
-					<button id="submitVote" class="btn btn-success">🗳️ Submit Vote to Blockchain</button>
-				` : `
-					<div class="info-box error-box">
-						<p>⚠️ Please select a vote option above before submitting.</p>
-					</div>
-				`}
-				<p class="note">Election Contract: <a href="${getVoteExplorerLink('0x')}" target="_blank">${getElectionContractAddress()}</a></p>
-				<div id="voteSubmitOutput"></div>
-			</div>
-		` : ''}
 	`;
 }
 
-function attachEventListeners() {
-	// Tab switching
-	document.querySelectorAll('.tab').forEach(tab => {
-		tab.addEventListener('click', (e) => {
-			const tabName = (e.target as HTMLElement).getAttribute('data-tab');
-			switchTab(tabName!);
-		});
-	});
-	
-	// Generate credentials
-	const generateCredBtn = document.querySelector('#generateCred');
-	if (generateCredBtn) {
-		generateCredBtn.addEventListener('click', handleGenerateCredentials);
+async function loadElections() {
+	try {
+		log('Loading elections...', 'info');
+		elections = await voterAPI.getActiveElections();
+		log(`Loaded ${elections.length} elections`, 'success');
+
+		// Update UI
+		const electionsList = document.querySelector('#electionsList');
+		if (electionsList) {
+			electionsList.innerHTML = elections.map((e) => renderElectionCard(e)).join('');
+		}
+
+		// Check status of pending requests
+		for (const [electionId, credData] of voterCredentials.entries()) {
+			if (credData.requestId && credData.requestStatus === 'pending') {
+				await checkRequestStatus(electionId, credData.requestId);
+			}
+		}
+	} catch (error) {
+		log(
+			`Failed to load elections: ${error instanceof Error ? error.message : 'Unknown error'}`,
+			'error'
+		);
 	}
-	
-	// Registration form
-	const registrationForm = document.querySelector('#registrationForm');
-	if (registrationForm) {
-		registrationForm.addEventListener('submit', handleRegistrationSubmit);
-		// Load elections when form is visible
-		loadElections();
+}
+
+async function checkRequestStatus(electionId: number, requestId: string) {
+	try {
+		const request = await voterAPI.getRequest(requestId);
+		const credData = voterCredentials.get(electionId);
+		if (credData && credData.requestStatus !== request.status) {
+			credData.requestStatus = request.status;
+			saveCredentials();
+
+			if (request.status === 'approved') {
+				log(`Your registration for election ${electionId} has been approved!`, 'success');
+			} else if (request.status === 'rejected' || request.status === 'auto_rejected') {
+				log(`Your registration for election ${electionId} was rejected.`, 'error');
+			}
+
+			// Refresh elections list
+			const electionsList = document.querySelector('#electionsList');
+			if (electionsList) {
+				electionsList.innerHTML = elections.map((e) => renderElectionCard(e)).join('');
+			}
+		}
+	} catch (error) {
+		console.error(`Failed to check status for request ${requestId}:`, error);
+	}
+}
+
+// Global window functions
+(window as any).registerForElection = async function (electionId: number) {
+	log(`Starting registration for election ${electionId}...`, 'info');
+
+	// Step 3: Generate credentials
+	let credData = voterCredentials.get(electionId);
+	if (
+		!credData ||
+		credData.requestStatus === 'rejected' ||
+		credData.requestStatus === 'auto_rejected'
+	) {
+		log('Generating credentials...', 'info');
+		const credentials: VoteCredentials = {
+			ID: generateRandomField(),
+			X: generateRandomField(),
+			Xp: generateRandomField(),
+		};
+		credData = {
+			electionId,
+			credentials,
+			createdAt: Date.now(),
+		};
+		voterCredentials.set(electionId, credData);
+		saveCredentials();
+		log('Credentials generated and saved', 'success');
 	}
 
-	// Proof generation
-	const generateProofBtn = document.querySelector('#generateProof');
-	if (generateProofBtn) {
-		generateProofBtn.addEventListener('click', handleGenerateProof);
+	// Step 4: Show registration form
+	showRegistrationForm(electionId);
+};
+
+function showRegistrationForm(electionId: number) {
+	const election = elections.find((e) => e.id === electionId);
+	if (!election) {
+		log('Election not found', 'error');
+		return;
 	}
-	
-	// Verify proof
-	const verifyProofBtn = document.querySelector('#verifyProof');
-	if (verifyProofBtn) {
-		verifyProofBtn.addEventListener('click', handleVerifyProof);
+
+	const formHtml = `
+		<div class="modal-overlay" onclick="window.closeRegistrationForm()">
+			<div class="modal registration-modal" onclick="event.stopPropagation()">
+				<div class="modal-header">
+					<h2>📝 Register for: ${election.name}</h2>
+					<button class="modal-close" onclick="window.closeRegistrationForm()">×</button>
+				</div>
+				<div class="modal-body">
+					<p class="note">✅ Credentials have been generated and saved automatically</p>
+					<form id="registrationForm" class="form">
+						<div class="form-group">
+							<label for="fullName">Full Name:</label>
+							<input type="text" id="fullName" name="fullName" required />
+						</div>
+						<div class="form-group">
+							<label for="passportNumber">Passport Number:</label>
+							<input type="text" id="passportNumber" name="passportNumber" required />
+						</div>
+						<div class="form-group">
+							<label for="dateOfBirth">Date of Birth:</label>
+							<input type="date" id="dateOfBirth" name="dateOfBirth" required />
+						</div>
+						<div class="form-group">
+							<label for="nationality">Nationality:</label>
+							<input type="text" id="nationality" name="nationality" required />
+						</div>
+						<div class="form-group">
+							<label for="passportImage">Passport Image:</label>
+							<input type="file" id="passportImage" name="passportImage" accept="image/*" required />
+						</div>
+						<div class="form-group">
+							<label for="photo">Your Photo:</label>
+							<input type="file" id="photo" name="photo" accept="image/*" required />
+						</div>
+						<button type="submit" class="btn btn-primary">📤 Submit Registration</button>
+					</form>
+				</div>
+			</div>
+		</div>
+	`;
+
+	document.body.insertAdjacentHTML('beforeend', formHtml);
+
+	// Attach form submit handler
+	const form = document.querySelector('#registrationForm') as HTMLFormElement;
+	if (form) {
+		form.addEventListener('submit', (e) => handleRegistrationSubmit(e, electionId));
 	}
-	
-	// Submit vote button
-	const submitVoteBtn = document.querySelector('#submitVote');
-	if (submitVoteBtn) {
-		submitVoteBtn.addEventListener('click', handleSubmitVote);
+}
+
+(window as any).closeRegistrationForm = function () {
+	const overlay = document.querySelector('.modal-overlay');
+	if (overlay) {
+		overlay.remove();
 	}
-	
-	// Vote option radio buttons
+};
+
+async function handleRegistrationSubmit(e: Event, electionId: number) {
+	e.preventDefault();
+
+	const form = e.target as HTMLFormElement;
+	const formData = new FormData(form);
+
+	const credData = voterCredentials.get(electionId);
+	if (!credData) {
+		log('Credentials not found! Please try again.', 'error');
+		return;
+	}
+
+	// Add credential data to form
+	formData.append('voterId', credData.credentials.ID.toString());
+	formData.append('secretX', credData.credentials.X.toString());
+	const hashXp = poseidon1([credData.credentials.Xp]);
+	formData.append('hashXp', hashXp.toString());
+	formData.append('electionId', electionId.toString());
+
+	try {
+		log('Submitting registration...', 'info');
+		const request = await voterAPI.submitRegistration(formData);
+
+		// Update credential data
+		credData.requestId = request.id;
+		credData.requestStatus = 'pending';
+		saveCredentials();
+
+		log('Registration submitted successfully! Waiting for admin approval...', 'success');
+
+		// Close form
+		(window as any).closeRegistrationForm();
+
+		// Refresh elections list
+		const electionsList = document.querySelector('#electionsList');
+		if (electionsList) {
+			electionsList.innerHTML = elections.map((e) => renderElectionCard(e)).join('');
+		}
+
+		// Start polling for approval
+		startPollingRequest(electionId, request.id);
+	} catch (error) {
+		log(
+			`Failed to submit registration: ${
+				error instanceof Error ? error.message : 'Unknown error'
+			}`,
+			'error'
+		);
+	}
+}
+
+function startPollingRequest(electionId: number, requestId: string) {
+	const interval = setInterval(async () => {
+		const credData = voterCredentials.get(electionId);
+		if (!credData || credData.requestId !== requestId) {
+			clearInterval(interval);
+			return;
+		}
+
+		if (credData.requestStatus !== 'pending') {
+			clearInterval(interval);
+			return;
+		}
+
+		await checkRequestStatus(electionId, requestId);
+	}, 5000); // Check every 5 seconds
+}
+
+(window as any).startVoting = function (electionId: number) {
+	selectedElectionId = electionId;
+
+	// Hide elections section, show voting section
+	const electionsSection = document.querySelector('#electionsSection') as HTMLElement;
+	const votingSection = document.querySelector('#votingSection') as HTMLElement;
+
+	if (electionsSection) electionsSection.style.display = 'none';
+	if (votingSection) {
+		votingSection.innerHTML = renderVotingSection();
+		votingSection.style.display = 'block';
+		attachVotingListeners();
+	}
+};
+
+(window as any).backToElections = function () {
+	selectedElectionId = null;
+
+	const electionsSection = document.querySelector('#electionsSection') as HTMLElement;
+	const votingSection = document.querySelector('#votingSection') as HTMLElement;
+
+	if (electionsSection) electionsSection.style.display = 'block';
+	if (votingSection) votingSection.style.display = 'none';
+};
+
+function attachVotingListeners() {
 	const voteOptions = document.querySelectorAll('input[name="voteOption"]');
-	voteOptions.forEach(radio => {
+	const castVoteBtn = document.querySelector('#castVoteBtn') as HTMLButtonElement;
+
+	let selectedOptionIndex: number | null = null;
+
+	voteOptions.forEach((radio) => {
 		radio.addEventListener('change', (e) => {
 			const target = e.target as HTMLInputElement;
 			selectedOptionIndex = parseInt(target.value);
-			log(`Selected option: ${currentElectionOptions[selectedOptionIndex]}`, 'info');
-			
-			// Re-render to update UI
-			const proofTab = document.querySelector('#tab-proof');
-			if (proofTab) {
-				proofTab.innerHTML = renderProofTab();
-				attachEventListeners();
-			}
+			if (castVoteBtn) castVoteBtn.disabled = false;
 		});
 	});
-	
+
+	if (castVoteBtn) {
+		castVoteBtn.addEventListener('click', async () => {
+			if (selectedOptionIndex === null) {
+				log('Please select an option', 'error');
+				return;
+			}
+
+			await handleCastVote(selectedOptionIndex);
+		});
+	}
+}
+
+async function handleCastVote(selectedOptionIndex: number) {
+	if (!selectedElectionId) {
+		log('No election selected', 'error');
+		return;
+	}
+
+	const credData = voterCredentials.get(selectedElectionId);
+	if (!credData || !credData.requestId || credData.requestStatus !== 'approved') {
+		log('You are not approved to vote in this election', 'error');
+		return;
+	}
+
+	const election = elections.find((e) => e.id === selectedElectionId);
+	if (!election) {
+		log('Election not found', 'error');
+		return;
+	}
+
+	// Show progress UI
+	const voteOptionsSection = document.querySelector('#voteOptionsSection') as HTMLElement;
+	const voteActions = document.querySelector('.vote-actions') as HTMLElement;
+	const votingProgress = document.querySelector('#votingProgress') as HTMLElement;
+	const voteResult = document.querySelector('#voteResult') as HTMLElement;
+
+	if (voteOptionsSection) voteOptionsSection.style.display = 'none';
+	if (voteActions) voteActions.style.display = 'none';
+	if (votingProgress) votingProgress.style.display = 'block';
+	if (voteResult) voteResult.style.display = 'none';
+
+	try {
+		// Step 1: Generate proof
+		log('Generating zero-knowledge proof...', 'info');
+		updateStepStatus('step-proof', 'loading');
+
+		const signature = await voterAPI.getSignature(credData.requestId);
+		const adminPublicKey = await voterAPI.getAdminPublicKey();
+
+		const signatureData = {
+			R8x: BigInt(signature.signatureR8x),
+			R8y: BigInt(signature.signatureR8y),
+			S: BigInt(signature.signatureS),
+			Ax: BigInt(adminPublicKey.publicKeyX),
+			Ay: BigInt(adminPublicKey.publicKeyY),
+		};
+
+		const input = await generateVoteInput(
+			credData.credentials,
+			BigInt(selectedElectionId),
+			signatureData
+		);
+
+		const { proof, publicSignals } = await generateProof(input, WASM_PATH, ZKEY_PATH);
+		log('Proof generated successfully', 'success');
+		updateStepStatus('step-proof', 'success');
+
+		// Store proof for download
+		(window as any).currentProof = proof;
+		(window as any).currentPublicSignals = publicSignals;
+
+		// Show proof in technical details
+		const proofData = document.querySelector('#proofData');
+		if (proofData) {
+			proofData.textContent = JSON.stringify(proof, null, 2);
+		}
+		const proofDetails = document.querySelector('#proofDetails') as HTMLElement;
+		if (proofDetails) {
+			proofDetails.style.display = 'block';
+		}
+
+		// Step 2: Verify proof locally
+		log('Verifying proof locally...', 'info');
+		updateStepStatus('step-verify', 'loading');
+
+		const isValid = await verifyProof(proof, publicSignals, VKEY_PATH);
+		if (!isValid) {
+			throw new Error('Proof verification failed');
+		}
+		log('Proof verified successfully', 'success');
+		updateStepStatus('step-verify', 'success');
+
+		// Step 3: Submit to blockchain
+		log('Submitting vote to blockchain...', 'info');
+		updateStepStatus('step-submit', 'loading');
+
+		if (!isMetaMaskInstalled()) {
+			throw new Error('MetaMask not installed');
+		}
+
+		const { encryptedData } = await encryptVoteOption(selectedOptionIndex);
+
+		const result = await submitVote(proof, publicSignals, encryptedData);
+
+		if (!result.success || !result.txHash) {
+			throw new Error(result.error || 'Failed to submit vote');
+		}
+
+		const txHash = result.txHash;
+
+		log('Vote submitted successfully!', 'success');
+		updateStepStatus('step-submit', 'success');
+
+		// Show result
+		if (votingProgress) votingProgress.style.display = 'none';
+		if (voteResult) {
+			voteResult.innerHTML = `
+				<div class="success-box">
+					<h3>✅ Vote Cast Successfully!</h3>
+					<p>Your vote for <strong>"${
+						election.options[selectedOptionIndex]
+					}"</strong> has been recorded on the blockchain.</p>
+					<p class="note">Transaction Hash: <a href="${getVoteExplorerLink(
+						txHash
+					)}" target="_blank">${txHash.substring(0, 20)}...</a></p>
+					<button class="btn btn-primary" onclick="window.backToElections()">← Back to Elections</button>
+				</div>
+			`;
+			voteResult.style.display = 'block';
+		}
+	} catch (error) {
+		log(
+			`Failed to cast vote: ${error instanceof Error ? error.message : 'Unknown error'}`,
+			'error'
+		);
+
+		// Update failed step
+		const steps = ['step-proof', 'step-verify', 'step-submit'];
+		for (const step of steps) {
+			const el = document.querySelector(`#${step}`) as HTMLElement;
+			if (el && el.querySelector('.step-icon')?.textContent === '⏳') {
+				updateStepStatus(step, 'error');
+				break;
+			}
+		}
+
+		// Show error
+		if (votingProgress) votingProgress.style.display = 'none';
+		if (voteResult) {
+			voteResult.innerHTML = `
+				<div class="error-box">
+					<h3>❌ Voting Failed</h3>
+					<p>${error instanceof Error ? error.message : 'Unknown error occurred'}</p>
+					<button class="btn btn-primary" onclick="location.reload()">Try Again</button>
+				</div>
+			`;
+			voteResult.style.display = 'block';
+		}
+	}
+}
+
+function updateStepStatus(stepId: string, status: 'loading' | 'success' | 'error') {
+	const step = document.querySelector(`#${stepId}`) as HTMLElement;
+	if (!step) return;
+
+	const icon = step.querySelector('.step-icon');
+	if (!icon) return;
+
+	step.className = 'progress-step';
+
+	if (status === 'loading') {
+		step.classList.add('loading');
+		icon.textContent = '⏳';
+	} else if (status === 'success') {
+		step.classList.add('success');
+		icon.textContent = '✅';
+	} else if (status === 'error') {
+		step.classList.add('error');
+		icon.textContent = '❌';
+	}
+}
+
+(window as any).toggleTechnicalInfo = function () {
+	const details = document.querySelector('#technicalDetails') as HTMLElement;
+	const btn = event?.target as HTMLButtonElement;
+
+	if (details) {
+		if (details.style.display === 'none') {
+			details.style.display = 'block';
+			if (btn) btn.textContent = '📊 Hide Technical Details';
+		} else {
+			details.style.display = 'none';
+			if (btn) btn.textContent = '📊 Show Technical Details';
+		}
+	}
+};
+
+(window as any).downloadCredentials = function () {
+	if (!selectedElectionId) return;
+
+	const credData = voterCredentials.get(selectedElectionId);
+	if (!credData) return;
+
+	const data = JSON.stringify(
+		{
+			electionId: selectedElectionId,
+			credentials: {
+				ID: credData.credentials.ID.toString(),
+				X: credData.credentials.X.toString(),
+				Xp: credData.credentials.Xp.toString(),
+			},
+			requestId: credData.requestId,
+			createdAt: credData.createdAt,
+		},
+		null,
+		2
+	);
+
+	const blob = new Blob([data], { type: 'application/json' });
+	const url = URL.createObjectURL(blob);
+	const a = document.createElement('a');
+	a.href = url;
+	a.download = `credentials-election-${selectedElectionId}.json`;
+	document.body.appendChild(a);
+	a.click();
+	document.body.removeChild(a);
+	URL.revokeObjectURL(url);
+	log('Credentials downloaded', 'success');
+};
+
+(window as any).downloadProof = function () {
+	const proof = (window as any).currentProof;
+	const publicSignals = (window as any).currentPublicSignals;
+
+	if (!proof || !publicSignals) {
+		log('No proof available to download', 'error');
+		return;
+	}
+
+	const data = JSON.stringify(
+		{
+			proof,
+			publicSignals,
+		},
+		null,
+		2
+	);
+
+	const blob = new Blob([data], { type: 'application/json' });
+	const url = URL.createObjectURL(blob);
+	const a = document.createElement('a');
+	a.href = url;
+	a.download = `proof-election-${selectedElectionId}.json`;
+	document.body.appendChild(a);
+	a.click();
+	document.body.removeChild(a);
+	URL.revokeObjectURL(url);
+	log('Proof downloaded', 'success');
+};
+
+function attachEventListeners() {
 	// Logout button
 	const logoutBtn = document.querySelector('#logoutBtn');
 	if (logoutBtn) {
@@ -445,855 +801,32 @@ function attachEventListeners() {
 	}
 }
 
-function switchTab(tabName: string) {
-	// Update tab buttons
-	document.querySelectorAll('.tab').forEach(tab => {
-		tab.classList.remove('active');
-		if (tab.getAttribute('data-tab') === tabName) {
-			tab.classList.add('active');
-		}
-	});
-	
-	// Update tab content
-	document.querySelectorAll('.tab-pane').forEach(pane => {
-		pane.classList.remove('active');
-	});
-	const activePane = document.querySelector(`#tab-${tabName}`);
-	if (activePane) {
-		activePane.classList.add('active');
-	}
-	
-	// Re-render content if needed
-	if (tabName === 'credentials') {
-		const credTab = document.querySelector('#tab-credentials');
-		if (credTab) {
-			credTab.innerHTML = renderCredentialsTab();
-		}
-	} else if (tabName === 'proof') {
-		const proofTab = document.querySelector('#tab-proof');
-		if (proofTab) {
-			proofTab.innerHTML = renderProofTab();
-			attachEventListeners();
-		}
+function handleLogout() {
+	if (confirm('Are you sure you want to logout?')) {
+		authService.logout();
+		window.location.href = '/login.html';
 	}
 }
 
-// Global window functions for onclick handlers
-(window as any).viewCredentialDetails = function(credId: string) {
-	const cred = credentialsList.find(c => c.id === credId);
-	if (!cred) return;
-	
-	const detailsHtml = `
-		<div class="modal-overlay" onclick="this.remove()">
-			<div class="modal" onclick="event.stopPropagation()">
-				<div class="modal-header">
-					<h2>📋 Credential Details: ${cred.name}</h2>
-					<button class="modal-close" onclick="this.closest('.modal-overlay').remove()">×</button>
-				</div>
-				<div class="modal-body">
-					<div class="detail-group">
-						<label>Voter ID:</label>
-						<div class="value-wrap">${cred.credentials.ID.toString()}</div>
-					</div>
-					<div class="detail-group">
-						<label>Secret X:</label>
-						<div class="value-wrap">${cred.credentials.X.toString()}</div>
-					</div>
-					<div class="detail-group">
-						<label>Secret Xp:</label>
-						<div class="value-wrap">${cred.credentials.Xp.toString()}</div>
-					</div>
-					<div class="detail-group">
-						<label>Created:</label>
-						<div>${new Date(cred.createdAt).toLocaleString()}</div>
-					</div>
-					<div class="detail-group">
-						<label>Total Requests:</label>
-						<div>${cred.requests.length}</div>
-					</div>
-				</div>
-			</div>
-		</div>
-	`;
-	document.body.insertAdjacentHTML('beforeend', detailsHtml);
-};
-
-(window as any).downloadCredential = function(credId: string) {
-	const cred = credentialsList.find(c => c.id === credId);
-	if (!cred) return;
-	
-	// Convert BigInt to string for JSON
-	const credData = {
-		...cred,
-		credentials: {
-			ID: cred.credentials.ID.toString(),
-			X: cred.credentials.X.toString(),
-			Xp: cred.credentials.Xp.toString(),
-		}
-	};
-	
-	const data = JSON.stringify(credData, null, 2);
-	const blob = new Blob([data], { type: 'application/json' });
-	const url = URL.createObjectURL(blob);
-	const a = document.createElement('a');
-	a.href = url;
-	a.download = `credential-${cred.name.replace(/\s+/g, '-')}.json`;
-	document.body.appendChild(a);
-	a.click();
-	document.body.removeChild(a);
-	URL.revokeObjectURL(url);
-	log(`Downloaded credential: ${cred.name}`, 'success');
-};
-
-(window as any).deleteCredential = async function(credId: string) {
-	const cred = credentialsList.find(c => c.id === credId);
-	if (!cred) {
-		log('Credential not found!', 'error');
-		return;
-	}
-	
-	const hasApproved = cred.requests.some(r => r.status === 'approved');
-	if (hasApproved) {
-		log('Cannot delete credential with approved requests!', 'error');
-		return;
-	}
-	
-	if (!confirm(`Delete credential "${cred.name}"?\n\nThis will permanently remove this credential and all its pending requests. This action cannot be undone.`)) {
-		return;
-	}
-	
+// Check auth and init app
+(async () => {
 	try {
-		// Delete all pending requests from backend
-		for (const req of cred.requests) {
-			if (req.status === 'pending' || req.status === 'rejected' || req.status === 'auto_rejected') {
-				try {
-					// Note: Backend doesn't have a delete endpoint, but we'll remove it locally
-					console.log(`Would delete request ${req.id} from backend`);
-				} catch (error) {
-					console.warn(`Failed to delete request ${req.id}:`, error);
-				}
-			}
-		}
-		
-		// Remove credential locally
-		credentialsList = credentialsList.filter(c => c.id !== credId);
-		saveCredentials();
-		log(`Deleted credential: ${cred.name}`, 'success');
-		
-		// Re-render credentials tab
-		const credTab = document.querySelector('#tab-credentials');
-		if (credTab) {
-			credTab.innerHTML = renderCredentialsTab();
-		}
-	} catch (error) {
-		log(`Error deleting credential: ${error instanceof Error ? error.message : 'Unknown error'}`, 'error');
-	}
-};
-
-(window as any).submitNewRequestForCredential = function(credId: string) {
-	const cred = credentialsList.find(c => c.id === credId);
-	if (!cred) return;
-	
-	// Store credential as temp for form submission
-	(window as any).tempCredential = cred;
-	
-	// Switch to register tab and show registration form
-	switchTab('register');
-	
-	// Hide credential generation section, show registration form
-	setTimeout(() => {
-		const regSection = document.querySelector('#registrationSection') as HTMLElement;
-		if (regSection) {
-			regSection.style.display = 'block';
-		}
-		
-		const credentialsDiv = document.querySelector('#newCredentials');
-		if (credentialsDiv) {
-			credentialsDiv.innerHTML = `
-				<h3>📋 Using Credential: ${cred.name}</h3>
-				<div class="credential-item">
-					<strong>Voter ID:</strong>
-					<div class="value-short" title="${cred.credentials.ID.toString()}">${String(cred.credentials.ID).substring(0, 20)}...</div>
-				</div>
-				<p class="note">Fill out the form below to submit a new registration request for this credential.</p>
-			`;
-		}
-	}, 100);
-};
-
-(window as any).loadSignatureForProof = async function(requestId: string) {
-	try {
-		log(`Loading signature for request ${requestId}...`);
-		
-		// Find which credential this request belongs to
-		const cred = credentialsList.find(c => c.requests.some(r => r.id === requestId));
-		if (!cred) {
-			log('Credential not found for this request!', 'error');
-			return;
-		}
-		
-		// Get the request
-		const request = cred.requests.find(r => r.id === requestId);
-		if (!request) {
-			log('Request not found!', 'error');
-			return;
-		}
-		
-		// Set the selected request
-		selectedRequestId = requestId;
-		
-		// Load election options for this request
-		if (request.electionId) {
-			try {
-				const elections = await voterAPI.getActiveElections();
-				const election = elections.find(e => e.id === request.electionId);
-				if (election) {
-					currentElectionOptions = election.options || [];
-					log(`Loaded ${currentElectionOptions.length} voting options`, 'info');
-				} else {
-					log('Warning: Election not found for this request', 'error');
-					currentElectionOptions = [];
-				}
-			} catch (error) {
-				console.error('Failed to load election options:', error);
-				currentElectionOptions = [];
-			}
-		}
-		
-		log('Signature loaded successfully!', 'success');
-		
-		// Switch to proof tab
-		switchTab('proof');
-	} catch (error) {
-		log(`Error: ${error instanceof Error ? error.message : 'Unknown error'}`, 'error');
-	}
-};
-
-async function handleGenerateCredentials() {
-	try {
-		const nameInput = document.querySelector('#credentialName') as HTMLInputElement;
-		const name = nameInput?.value.trim() || `Credential ${credentialsList.length + 1}`;
-		
-		log('Generating random voter credentials...');
-		const btn = document.querySelector('#generateCred') as HTMLButtonElement;
-		btn.disabled = true;
-
-		// Generate random credentials
-		const credentials: VoteCredentials = {
-			ID: generateRandomField(),
-			X: generateRandomField(),
-			Xp: generateRandomField(),
-		};
-
-		// Create credential item
-		const newCredential: CredentialItem = {
-			id: Date.now().toString() + Math.random().toString(36).substring(7),
-			credentials,
-			createdAt: Date.now(),
-			name,
-			requests: [],
-		};
-		
-		credentialsList.push(newCredential);
-		saveCredentials();
-
-		// Display credentials
-		const credentialsDiv = document.querySelector('#newCredentials');
-		if (credentialsDiv) {
-			credentialsDiv.innerHTML = `
-				<h3>✅ Credentials Generated: ${name}</h3>
-				<div class="credential-item">
-					<strong>Voter ID:</strong>
-					<div class="value-short" title="${credentials.ID.toString()}">${String(credentials.ID).substring(0, 20)}...</div>
-				</div>
-				<p class="note">✓ Credentials saved! Now you can submit a registration request.</p>
-			`;
-		}
-
-		log('Credentials generated and saved successfully!', 'success');
-		
-		// Show registration section
-		const regSection = document.querySelector('#registrationSection') as HTMLElement;
-		if (regSection) {
-			regSection.style.display = 'block';
-		}
-		
-		// Store temporarily for form submission
-		(window as any).tempCredential = newCredential;
-	} catch (error) {
-		log(`Error: ${error instanceof Error ? error.message : 'Unknown error'}`, 'error');
-	} finally {
-		const btn = document.querySelector('#generateCred') as HTMLButtonElement;
-		if (btn) btn.disabled = false;
-	}
-}
-
-// Load active elections into dropdown
-async function loadElections() {
-	try {
-		const elections = await voterAPI.getActiveElections();
-		const select = document.querySelector('#electionId') as HTMLSelectElement;
-		if (!select) return;
-
-		// Clear existing options except the first one
-		while (select.options.length > 1) {
-			select.remove(1);
-		}
-
-		// Add active elections
-		elections.forEach(election => {
-			const option = document.createElement('option');
-			option.value = election.id.toString();
-			option.textContent = `${election.name} - ${election.description}`;
-			select.appendChild(option);
-		});
-
-		if (elections.length === 0) {
-			log('No active elections available. Please contact admin.', 'error');
-		}
-	} catch (error) {
-		console.error('Error loading elections:', error);
-		log('Failed to load elections', 'error');
-	}
-}
-
-async function handleRegistrationSubmit(e: Event) {
-	e.preventDefault();
-	
-	const tempCred = (window as any).tempCredential as CredentialItem;
-	if (!tempCred) {
-		log('Please generate credentials first!', 'error');
-		return;
-	}
-	
-	try {
-		log('Submitting registration...');
-		const submitBtn = document.querySelector('#submitRegistration') as HTMLButtonElement;
-		submitBtn.disabled = true;
-		
-		const form = e.target as HTMLFormElement;
-		const formData = new FormData(form);
-		
-		// Add credentials to form data (send hash of Xp, not plain Xp)
-		const hashXp = poseidon1([tempCred.credentials.Xp]);
-		formData.append('voterId', tempCred.credentials.ID.toString());
-		formData.append('secretX', tempCred.credentials.X.toString());
-		formData.append('hashXp', hashXp.toString());
-		
-		const response = await voterAPI.submitRegistration(formData);
-		
-		// Find the credential in the list and add request to it
-		const credInList = credentialsList.find(c => c.id === tempCred.id);
-		if (credInList) {
-			credInList.requests.push(response);
-			saveCredentials();
-		}
-		
-		log(`Registration submitted successfully! Request ID: ${response.id}`, 'success');
-		log('Go to "My Credentials" tab to check your requests.', 'info');
-		
-		// Reset form
-		form.reset();
-		const nameInput = document.querySelector('#credentialName') as HTMLInputElement;
-		if (nameInput) nameInput.value = '';
-		
-		const regSection = document.querySelector('#registrationSection') as HTMLElement;
-		if (regSection) regSection.style.display = 'none';
-		
-		const credentialsDiv = document.querySelector('#newCredentials');
-		if (credentialsDiv) credentialsDiv.innerHTML = '';
-		
-		// Clear temp
-		delete (window as any).tempCredential;
-		
-		// Switch to credentials tab
-		switchTab('credentials');
-		
-		// Start periodic refresh for this request
-		startRequestRefresh(tempCred.id, response.id);
-	} catch (error) {
-		log(`Error: ${error instanceof Error ? error.message : 'Unknown error'}`, 'error');
-	} finally {
-		const submitBtn = document.querySelector('#submitRegistration') as HTMLButtonElement;
-		if (submitBtn) submitBtn.disabled = false;
-	}
-}
-
-// Refresh request status periodically
-function startRequestRefresh(credId: string, requestId: string) {
-	const interval = setInterval(async () => {
-		try {
-			const cred = credentialsList.find(c => c.id === credId);
-			if (!cred) {
-				clearInterval(interval);
-				return;
-			}
-			
-			const reqIndex = cred.requests.findIndex(r => r.id === requestId);
-			if (reqIndex === -1) {
-				clearInterval(interval);
-				return;
-			}
-			
-			const updated = await voterAPI.getRequest(requestId);
-			cred.requests[reqIndex] = updated;
-			saveCredentials();
-			
-			// Stop refreshing if not pending anymore
-			if (updated.status !== 'pending') {
-				clearInterval(interval);
-				
-				// Re-render if on credentials tab
-				const credTab = document.querySelector('#tab-credentials');
-				if (credTab && credTab.classList.contains('active')) {
-					credTab.innerHTML = renderCredentialsTab();
-				}
-				
-				// Show notification
-				if (updated.status === 'approved') {
-					log(`✅ Request approved for ${cred.name}!`, 'success');
-				} else if (updated.status === 'rejected' || updated.status === 'auto_rejected') {
-					log(`❌ Request ${updated.status === 'auto_rejected' ? 'auto-rejected' : 'rejected'} for ${cred.name}`, 'error');
-				}
-			}
-		} catch (error) {
-			console.error('Failed to refresh request:', error);
-		}
-	}, 10000); // Check every 10 seconds
-}
-
-// Refresh all pending requests periodically
-function startGlobalRefresh() {
-	setInterval(async () => {
-		for (const cred of credentialsList) {
-			for (let i = 0; i < cred.requests.length; i++) {
-				const req = cred.requests[i];
-				if (req.status === 'pending') {
-					try {
-						const updated = await voterAPI.getRequest(req.id);
-						cred.requests[i] = updated;
-						
-						// If status changed, update UI
-						if (updated.status !== 'pending') {
-							saveCredentials();
-							const credTab = document.querySelector('#tab-credentials');
-							if (credTab && credTab.classList.contains('active')) {
-								credTab.innerHTML = renderCredentialsTab();
-							}
-							
-							if (updated.status === 'approved') {
-								log(`✅ Request approved for ${cred.name}!`, 'success');
-							}
-						}
-					} catch (error) {
-						console.error('Failed to refresh request:', error);
-					}
-				}
-			}
-		}
-	}, 15000); // Check every 15 seconds
-}
-
-async function handleGenerateProof() {
-	if (!selectedRequestId) {
-		log('Please load signature first!', 'error');
-		return;
-	}
-	
-	const selectedCred = getCredentialForRequest(selectedRequestId);
-	if (!selectedCred) {
-		log('Credential not found for selected request!', 'error');
-		return;
-	}
-	
-	const request = selectedCred.requests.find(r => r.id === selectedRequestId);
-	if (!request || request.status !== 'approved') {
-		log('Selected request is not approved!', 'error');
-		return;
-	}
-	
-	try {
-		log('Loading signature data...');
-		const btn = document.querySelector('#generateProof') as HTMLButtonElement;
-		btn.disabled = true;
-		
-		// Load signature from backend
-		const signature = await voterAPI.getSignature(selectedRequestId);
-		
-		log('Preparing circuit input...');
-		
-		// Get admin public key from backend
-		const adminPubKey = await voterAPI.getAdminPublicKey();
-		
-		// Convert signature from backend to required format
-		const R8x = BigInt(signature.signatureR8x);
-		const R8y = BigInt(signature.signatureR8y);
-		const S = BigInt(signature.signatureS);
-		const Ax = BigInt(adminPubKey.publicKeyX);
-		const Ay = BigInt(adminPubKey.publicKeyY);
-		
-		// Generate circuit input
-		const electionId = BigInt(request.electionId || 12345); // Use election ID from request
-		const input = await generateVoteInput(
-			selectedCred.credentials,
-			electionId,
-			{ R8x, R8y, S, Ax, Ay }
-		);
-		
-		log('Generating zkSNARK proof (this may take 10-30 seconds)...');
-		
-		const { proof, publicSignals } = await generateProof(
-			input,
-			WASM_PATH,
-			ZKEY_PATH,
-			(msg) => log(msg, 'info')
-		);
-		
-		currentProof = proof;
-		currentPublicSignals = publicSignals;
-		
-		// Display proof
-		log('Proof generated successfully!', 'success');
-		
-		// Re-render proof tab to show verify buttons
-		const proofTab = document.querySelector('#tab-proof');
-		if (proofTab) {
-			proofTab.innerHTML = renderProofTab();
-			attachEventListeners();
-			
-			// Now update the proofOutput div after re-render
-			const proofOutputDiv = document.querySelector('#proofOutput');
-			if (proofOutputDiv) {
-				const parsed = parsePublicSignals(publicSignals);
-				proofOutputDiv.innerHTML = `
-					<h3>✅ Proof Generated Successfully!</h3>
-					<div class="credential-item">
-						<strong>Nullifier Hash:</strong>
-						<div class="value">${parsed.nullifier}</div>
-					</div>
-					<div class="credential-item">
-						<strong>Election ID:</strong>
-						<div class="value">${parsed.electionId}</div>
-					</div>
-					<p class="note">Proof contains ${publicSignals.length} public signals</p>
-					<button id="downloadProof" class="btn btn-secondary">📥 Download Proof</button>
-				`;
-				
-				// Attach download handler
-				const downloadBtn = document.querySelector('#downloadProof');
-				if (downloadBtn) {
-					downloadBtn.addEventListener('click', () => {
-						const proofJson = exportProof(proof, publicSignals);
-						const blob = new Blob([proofJson], { type: 'application/json' });
-						const url = URL.createObjectURL(blob);
-						const a = document.createElement('a');
-						a.href = url;
-						a.download = 'proof.json';
-						a.click();
-						URL.revokeObjectURL(url);
-						log('Proof downloaded!', 'success');
-					});
-				}
-			}
-		}
-	} catch (error) {
-		log(`Error: ${error instanceof Error ? error.message : 'Unknown error'}`, 'error');
-	} finally {
-		const btn = document.querySelector('#generateProof') as HTMLButtonElement;
-		if (btn) btn.disabled = false;
-	}
-}
-
-async function handleVerifyProof() {
-	if (!currentProof || !currentPublicSignals) {
-		log('Please generate a proof first!', 'error');
-		return;
-	}
-	
-	try {
-		log('Verifying proof locally...');
-		const btn = document.querySelector('#verifyProof') as HTMLButtonElement;
-		btn.disabled = true;
-		
-		const isValid = await verifyProof(
-			currentProof,
-			currentPublicSignals,
-			VKEY_PATH,
-			(msg) => log(msg, 'info')
-		);
-		
-		const outputDiv = document.querySelector('#localVerifyOutput');
-		if (outputDiv) {
-			if (isValid) {
-				outputDiv.innerHTML = `<div class="success-box">✅ Proof verified successfully (local)!</div>`;
-			} else {
-				outputDiv.innerHTML = `<div class="error-box">❌ Proof verification failed!</div>`;
-			}
-		}
-		
-		if (isValid) {
-			log('✅ Proof verified successfully (local)!', 'success');
+		if (authService.isAuthenticated()) {
+			await initApp();
 		} else {
-			log('❌ Proof verification failed!', 'error');
+			window.location.href = '/login.html';
 		}
 	} catch (error) {
-		log(`Error: ${error instanceof Error ? error.message : 'Unknown error'}`, 'error');
-	} finally {
-		const btn = document.querySelector('#verifyProof') as HTMLButtonElement;
-		if (btn) btn.disabled = false;
-	}
-}
-
-async function handleSubmitVote() {
-	if (!currentProof || !currentPublicSignals) {
-		log('Please generate a proof first!', 'error');
-		return;
-	}
-	
-	if (selectedOptionIndex === null) {
-		log('Please select a vote option!', 'error');
-		return;
-	}
-	
-	if (!selectedRequestId) {
-		log('No request selected!', 'error');
-		return;
-	}
-	
-	const selectedCred = getCredentialForRequest(selectedRequestId);
-	if (!selectedCred) {
-		log('Credential not found!', 'error');
-		return;
-	}
-	
-	const request = selectedCred.requests.find(r => r.id === selectedRequestId);
-	if (!request || request.status !== 'approved') {
-		log('Request is not approved!', 'error');
-		return;
-	}
-	
-	if (!isMetaMaskInstalled()) {
-		log('❌ MetaMask is not installed! Please install MetaMask to submit vote.', 'error');
-		window.open('https://metamask.io/', '_blank');
-		return;
-	}
-	
-	try {
-		log(`Encrypting vote option: ${currentElectionOptions[selectedOptionIndex]}...`);
-		const btn = document.querySelector('#submitVote') as HTMLButtonElement;
-		btn.disabled = true;
-		
-		// Encrypt vote option using ElGamal encryption
-		const { encryptedData } = await encryptVoteOption(selectedOptionIndex, ELECTION_PUBLIC_KEY);
-		log('Vote encrypted successfully!', 'success');
-		log(`Encrypted data: ${encryptedData.substring(0, 20)}...`, 'info');
-		
-		// Submit vote to blockchain
-		const result = await submitVote(
-			currentProof,
-			currentPublicSignals,
-			encryptedData,
-			(msg) => log(msg, 'info')
-		);
-		
-		const outputDiv = document.querySelector('#voteSubmitOutput');
-		if (outputDiv) {
-			if (result.success) {
-				outputDiv.innerHTML = `
-					<div class="success-box">
-						<h4>✅ Vote Submitted Successfully!</h4>
-						<p>Your vote has been recorded on the blockchain.</p>
-						${result.txHash ? `
-							<p>Transaction: <a href="${getVoteExplorerLink(result.txHash)}" target="_blank">${result.txHash.substring(0, 10)}...${result.txHash.substring(result.txHash.length - 8)}</a></p>
-						` : ''}
-						<p class="note">Your vote is encrypted and anonymous. Only authorized parties can decrypt the results.</p>
-					</div>
-				`;
-				log('✅ Vote submitted successfully!', 'success');
-			} else {
-				outputDiv.innerHTML = `
-					<div class="error-box">
-						<h4>❌ Vote Submission Failed</h4>
-						<p>${result.error || 'Unknown error'}</p>
-					</div>
-				`;
-				log(`❌ Vote submission failed: ${result.error}`, 'error');
-			}
-		}
-	} catch (error) {
-		log(`Error: ${error instanceof Error ? error.message : 'Unknown error'}`, 'error');
-	} finally {
-		const btn = document.querySelector('#submitVote') as HTMLButtonElement;
-		if (btn) btn.disabled = false;
-	}
-}
-
-// Initialize app on load
-if (!authService.isAuthenticated()) {
-	renderAuthPage();
-} else {
-	initApp();
-}
-
-async function handleLogout() {
-	try {
-		await authService.logout();
-		renderAuthPage();
-	} catch (error) {
-		console.error('Logout error:', error);
-		// Clear tokens anyway
-		authService.clearTokens();
-		renderAuthPage();
-	}
-}
-
-// Auth pages
-function renderAuthPage() {
-	app.innerHTML = `
-		<div class="auth-container">
-			<div class="auth-box">
-				<header class="auth-header">
-					<h1>🗳️ Voter Portal</h1>
-					<p>Secure Zero-Knowledge Proof Voting System</p>
-				</header>
-				
-				<div class="auth-tabs">
-					<button class="auth-tab active" data-auth-tab="login">Login</button>
-					<button class="auth-tab" data-auth-tab="register">Sign Up</button>
-				</div>
-				
-				<div class="auth-content">
-					<div id="auth-login" class="auth-pane active">
-						${renderLoginForm()}
-					</div>
-					<div id="auth-register" class="auth-pane">
-						${renderRegisterForm()}
-					</div>
+		console.error('Failed to initialize app:', error);
+		app.innerHTML = `
+			<div class="container">
+				<div class="section">
+					<h2>Error</h2>
+					<p style="color: var(--danger);">Failed to load the application. Please try refreshing the page.</p>
+					<p style="color: var(--text-secondary); font-size: 0.9rem;">${error instanceof Error ? error.message : 'Unknown error'}</p>
+					<button class="btn btn-primary" onclick="location.reload()">Refresh Page</button>
 				</div>
 			</div>
-		</div>
-	`;
-	
-	attachAuthListeners();
-}
-
-function renderLoginForm() {
-	return `
-		<form id="loginForm" class="auth-form">
-			<div class="form-group">
-				<label for="loginEmail">Email</label>
-				<input type="email" id="loginEmail" required placeholder="you@example.com" autocomplete="email" />
-			</div>
-			<div class="form-group">
-				<label for="loginPassword">Password</label>
-				<input type="password" id="loginPassword" required placeholder="••••••••" autocomplete="current-password" />
-			</div>
-			<button type="submit" class="btn btn-primary btn-block">Login</button>
-			<div id="loginError" class="error-message"></div>
-		</form>
-	`;
-}
-
-function renderRegisterForm() {
-	return `
-		<form id="registerForm" class="auth-form">
-			<div class="form-group">
-				<label for="registerEmail">Email</label>
-				<input type="email" id="registerEmail" required placeholder="you@example.com" autocomplete="email" />
-			</div>
-			<div class="form-group">
-				<label for="registerPassword">Password</label>
-				<input type="password" id="registerPassword" required placeholder="••••••••" minlength="6" autocomplete="new-password" />
-				<small>Minimum 6 characters</small>
-			</div>
-			<div class="form-group">
-				<label for="registerConfirmPassword">Confirm Password</label>
-				<input type="password" id="registerConfirmPassword" required placeholder="••••••••" minlength="6" autocomplete="new-password" />
-			</div>
-			<button type="submit" class="btn btn-primary btn-block">Create Account</button>
-			<div id="registerError" class="error-message"></div>
-		</form>
-	`;
-}
-
-function attachAuthListeners() {
-	// Tab switching
-	const authTabs = document.querySelectorAll('.auth-tab');
-	authTabs.forEach(tab => {
-		tab.addEventListener('click', () => {
-			const tabName = tab.getAttribute('data-auth-tab');
-			authTabs.forEach(t => t.classList.remove('active'));
-			tab.classList.add('active');
-			
-			document.querySelectorAll('.auth-pane').forEach(pane => pane.classList.remove('active'));
-			document.getElementById(`auth-${tabName}`)?.classList.add('active');
-		});
-	});
-	
-	// Login form
-	const loginForm = document.getElementById('loginForm') as HTMLFormElement;
-	loginForm?.addEventListener('submit', handleLogin);
-	
-	// Register form
-	const registerForm = document.getElementById('registerForm') as HTMLFormElement;
-	registerForm?.addEventListener('submit', handleRegister);
-}
-
-async function handleLogin(e: Event) {
-	e.preventDefault();
-	const form = e.target as HTMLFormElement;
-	const email = (form.querySelector('#loginEmail') as HTMLInputElement).value;
-	const password = (form.querySelector('#loginPassword') as HTMLInputElement).value;
-	const errorDiv = form.querySelector('#loginError') as HTMLDivElement;
-	const submitBtn = form.querySelector('button[type="submit"]') as HTMLButtonElement;
-	
-	errorDiv.textContent = '';
-	submitBtn.disabled = true;
-	submitBtn.textContent = 'Logging in...';
-	
-	try {
-		await authService.login(email, password);
-		// Redirect to main app
-		initApp();
-	} catch (error: any) {
-		errorDiv.textContent = error.response?.data?.message || 'Invalid email or password';
-		submitBtn.disabled = false;
-		submitBtn.textContent = 'Login';
+		`;
 	}
-}
-
-async function handleRegister(e: Event) {
-	e.preventDefault();
-	const form = e.target as HTMLFormElement;
-	const email = (form.querySelector('#registerEmail') as HTMLInputElement).value;
-	const password = (form.querySelector('#registerPassword') as HTMLInputElement).value;
-	const confirmPassword = (form.querySelector('#registerConfirmPassword') as HTMLInputElement).value;
-	const errorDiv = form.querySelector('#registerError') as HTMLDivElement;
-	const submitBtn = form.querySelector('button[type="submit"]') as HTMLButtonElement;
-	
-	errorDiv.textContent = '';
-	
-	if (password !== confirmPassword) {
-		errorDiv.textContent = 'Passwords do not match';
-		return;
-	}
-	
-	if (password.length < 6) {
-		errorDiv.textContent = 'Password must be at least 6 characters';
-		return;
-	}
-	
-	submitBtn.disabled = true;
-	submitBtn.textContent = 'Creating account...';
-	
-	try {
-		await authService.register(email, password);
-		// Redirect to main app
-		initApp();
-	} catch (error: any) {
-		errorDiv.textContent = error.response?.data?.message || 'Registration failed. Email may already be in use.';
-		submitBtn.disabled = false;
-		submitBtn.textContent = 'Create Account';
-	}
-}
-
+})();
