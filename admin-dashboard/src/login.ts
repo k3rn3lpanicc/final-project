@@ -1,3 +1,4 @@
+import './styles/base.css';
 import './styles/login.css';
 import { authService } from './services/auth';
 
