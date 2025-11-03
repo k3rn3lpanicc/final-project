@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Voting Results Dashboard</title>
+  </head>
+  <body>
+    <div id="app">
+      <header>
+        <h1>🗳️ Voting Results Dashboard</h1>
+        <p>Count and view election results in real-time</p>
+      </header>
+
+      <main>
+        <section class="config-section">
+          <h2>Election Configuration</h2>
+          <form id="counting-form">
+            <div class="form-group">
+              <label for="contract-address">Contract Address</label>
+              <input 
+                type="text" 
+                id="contract-address" 
+                value="0x814E3417224f85C0c1508d17076447A1bC8a43b7"
+                placeholder="0x..." 
+                required
+              />
+            </div>
+
+            <div class="form-group">
+              <label for="election-id">Election ID</label>
+              <input 
+                type="text" 
+                id="election-id" 
+                value="2"
+                placeholder="1" 
+                required
+              />
+            </div>
+
+            <div class="form-group">
+              <label for="private-key">Election Private Key</label>
+              <input 
+                type="password" 
+                id="private-key" 
+                value="250082668618633646334213584719494925374420844776732603861415520274085646643"
+                placeholder="Enter private key for decryption" 
+                required
+              />
+              <small>This key is used to decrypt votes and remains in your browser</small>
+            </div>
+
+            <div class="form-group">
+              <label for="rpc-url">RPC URL</label>
+              <input 
+                type="text" 
+                id="rpc-url" 
+                value="https://mainnet.skalenodes.com/v1/honorable-steel-rasalhague" 
+                placeholder="https://mainnet.skalenodes.com/v1/honorable-steel-rasalhague"
+                required
+              />
+            </div>
+
+            <details class="advanced-options">
+              <summary>Advanced Options</summary>
+              <div class="form-group">
+                <label for="start-block">Start Block (Optional)</label>
+                <input 
+                  type="number" 
+                  id="start-block" 
+                  value="35709656"
+                  placeholder="Auto-detect" 
+                  min="0"
+                />
+                <small>Leave empty to auto-detect. Specify a block number to skip auto-detection.</small>
+              </div>
+            </details>
+
+            <button type="submit" id="start-btn" class="btn-primary">
+              Start Counting
+            </button>
+            <button type="button" id="stop-btn" class="btn-secondary" style="display: none;">
+              Stop
+            </button>
+          </form>
+        </section>
+
+        <section id="progress-section" style="display: none;">
+          <h2>Progress</h2>
+          <div class="progress-container">
+            <div class="progress-bar">
+              <div id="progress-fill" class="progress-fill"></div>
+            </div>
+            <div class="progress-stats">
+              <span id="progress-text">0%</span>
+              <span id="vote-count">0 / 0 votes</span>
+            </div>
+            <div class="processing-stats">
+              <span id="processing-rate">0 votes/sec</span>
+              <span id="elapsed-time">Elapsed: 0s</span>
+              <span id="eta-time">ETA: 0s</span>
+            </div>
+          </div>
+        </section>
+
+        <section id="results-section" style="display: none;">
+          <h2>Results</h2>
+          <div class="results-summary">
+            <div class="stat-card">
+              <h3>Total Votes</h3>
+              <p id="total-votes" class="stat-number">0</p>
+            </div>
+            <div class="stat-card">
+              <h3>Valid Votes</h3>
+              <p id="valid-votes" class="stat-number">0</p>
+            </div>
+            <div class="stat-card">
+              <h3>Invalid Votes</h3>
+              <p id="invalid-votes" class="stat-number">0</p>
+            </div>
+            <div class="stat-card">
+              <h3>Processing Time</h3>
+              <p id="processing-time" class="stat-number">0s</p>
+            </div>
+          </div>
+
+          <div id="vote-distribution" class="vote-distribution">
+            <!-- Vote bars will be inserted here -->
+          </div>
+
+          <div id="invalid-votes-section" style="display: none;">
+            <h3>Invalid Votes</h3>
+            <div id="invalid-votes-list" class="invalid-votes-list">
+              <!-- Invalid votes will be listed here -->
+            </div>
+          </div>
+
+          <button id="download-btn" class="btn-primary">Download Results (JSON)</button>
+        </section>
+
+        <section id="log-section">
+          <h2>Log</h2>
+          <div id="log-container" class="log-container"></div>
+        </section>
+      </main>
+    </div>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
