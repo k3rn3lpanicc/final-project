@@ -3,6 +3,7 @@ import { countVotes } from './voteCounter.js';
 
 let isProcessing = false;
 let currentResults = null;
+let electionOptions = {}; // Store election options fetched from backend
 
 // DOM Elements
 const form = document.getElementById('counting-form');
@@ -29,6 +30,44 @@ const voteDistribution = document.getElementById('vote-distribution');
 const invalidVotesSection = document.getElementById('invalid-votes-section');
 const invalidVotesList = document.getElementById('invalid-votes-list');
 const downloadBtn = document.getElementById('download-btn');
+
+// Fetch election options from backend
+async function fetchElectionOptions(electionId, backendUrl) {
+  try {
+    log(`Fetching election details for election ID ${electionId}...`, 'info');
+    const response = await fetch(`${backendUrl}/elections`);
+    
+    if (!response.ok) {
+      throw new Error(`Failed to fetch elections: ${response.statusText}`);
+    }
+    
+    const elections = await response.json();
+    const election = elections.find(e => e.id === parseInt(electionId));
+    
+    if (!election) {
+      throw new Error(`Election with ID ${electionId} not found`);
+    }
+    
+    if (!election.options || !Array.isArray(election.options)) {
+      throw new Error('Election options not found or invalid');
+    }
+    
+    // Create a mapping from index to option name
+    const optionsMap = {};
+    election.options.forEach((option, index) => {
+      optionsMap[index] = option;
+    });
+    
+    log(`✅ Election details loaded: ${election.name}`, 'success');
+    log(`Options: ${election.options.join(', ')}`, 'info');
+    
+    return optionsMap;
+  } catch (error) {
+    log(`⚠️ Failed to fetch election options: ${error.message}`, 'error');
+    log('Will display option indices instead of names', 'warning');
+    return {};
+  }
+}
 
 // Logger function
 function log(message, type = 'info') {
@@ -94,11 +133,14 @@ function updateResultsIncremental(data) {
           const count = data.voteCounts[optionIndex];
           const percentage = data.validVotes > 0 ? ((count / data.validVotes) * 100).toFixed(2) : 0;
           
+          // Get option name from electionOptions or fallback to index
+          const optionName = electionOptions[optionIndex] || `Option ${optionIndex}`;
+          
           const optionDiv = document.createElement('div');
           optionDiv.className = 'vote-option';
           optionDiv.innerHTML = `
             <div class="vote-option-header">
-              <span class="option-name">Option ${optionIndex}</span>
+              <span class="option-name">${optionName}</span>
               <span class="option-count">${count} votes (${percentage}%)</span>
             </div>
             <div class="vote-bar-container">
@@ -143,11 +185,14 @@ function displayResults(results) {
       const count = results.voteCounts[optionIndex];
       const percentage = ((count / results.validVotes) * 100).toFixed(2);
       
+      // Get option name from electionOptions or fallback to index
+      const optionName = electionOptions[optionIndex] || `Option ${optionIndex}`;
+      
       const optionDiv = document.createElement('div');
       optionDiv.className = 'vote-option';
       optionDiv.innerHTML = `
         <div class="vote-option-header">
-          <span class="option-name">Option ${optionIndex}</span>
+          <span class="option-name">${optionName}</span>
           <span class="option-count">${count} votes (${percentage}%)</span>
         </div>
         <div class="vote-bar-container">
@@ -207,13 +252,14 @@ form.addEventListener('submit', async (e) => {
   const electionId = document.getElementById('election-id').value.trim();
   const privateKey = document.getElementById('private-key').value.trim();
   const rpcUrl = document.getElementById('rpc-url').value.trim();
+  const backendUrl = document.getElementById('backend-url').value.trim();
   const startBlockInput = document.getElementById('start-block').value.trim();
   
   // Parse start block (undefined if not provided, will auto-detect)
   const manualStartBlock = startBlockInput ? parseInt(startBlockInput, 10) : undefined;
   
   // Validate inputs
-  if (!contractAddress || !electionId || !privateKey || !rpcUrl) {
+  if (!contractAddress || !electionId || !privateKey || !rpcUrl || !backendUrl) {
     log('Please fill in all required fields', 'error');
     return;
   }
@@ -237,6 +283,9 @@ form.addEventListener('submit', async (e) => {
   }
   
   try {
+    // Fetch election options first
+    electionOptions = await fetchElectionOptions(electionId, backendUrl);
+    
     await countVotes(contractAddress, electionId, privateKey, rpcUrl, manualStartBlock, {
       onLog: log,
       onProgress: updateProgress,
