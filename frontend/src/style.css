@@ -195,7 +195,7 @@ header p {
 
 .auth-tab.active {
   background: var(--primary);
-  color: white;
+  color: #ffffff !important;
   box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3);
 }
 
@@ -484,7 +484,7 @@ header p {
 
 .btn:disabled {
   background: var(--bg-tertiary);
-  color: var(--text-secondary);
+  color: var(--text-primary) !important;
   cursor: not-allowed;
   opacity: 0.5;
   transform: none;
@@ -983,6 +983,7 @@ header p {
   color: var(--text-primary);
   margin-bottom: 1rem;
   font-weight: 600;
+  font-size: 1.25rem;
 }
 
 .log-container {
@@ -990,7 +991,7 @@ header p {
   border: 1px solid var(--border-color);
   border-radius: 12px;
   padding: 1rem;
-  height: 350px;
+  height: 250px;
   overflow-y: auto;
   font-family: 'JetBrains Mono', 'Courier New', monospace;
   font-size: 0.9rem;
@@ -1060,6 +1061,22 @@ footer {
   border-top: 1px solid var(--border-color);
   margin-top: auto;
   font-size: 0.9rem;
+  position: relative;
+  z-index: 1;
+}
+
+footer p {
+  margin: 0.5rem 0;
+}
+
+footer a {
+  color: var(--primary);
+  text-decoration: none;
+  transition: color 0.3s ease;
+}
+
+footer a:hover {
+  color: var(--primary-light);
 }
 
 /* Animations */
@@ -1809,6 +1826,28 @@ footer {
   justify-content: center;
   align-items: center;
   max-width: 500px;
+  margin: 0 auto;
+  padding: 2rem 1rem;
+}
+
+.auth-container .log {
+  display: none !important;
+}
+
+.auth-container header {
+  text-align: center;
+  margin-bottom: 2rem;
+  padding-bottom: 1.5rem;
+  border-bottom: 1px solid var(--border-color);
+  width: 100%;
+}
+
+.auth-container header h1 {
+  font-size: 2rem;
+}
+
+.auth-container header p {
+  font-size: 1rem;
 }
 
 .auth-box {
@@ -1818,36 +1857,6 @@ footer {
   padding: 2rem;
   width: 100%;
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
-}
-
-.auth-tabs {
-  display: flex;
-  gap: 0.5rem;
-  margin-bottom: 2rem;
-  border-bottom: 2px solid var(--border-color);
-}
-
-.auth-tab {
-  flex: 1;
-  padding: 0.75rem 1rem;
-  background: transparent;
-  border: none;
-  border-bottom: 2px solid transparent;
-  color: var(--text-secondary);
-  font-size: 1rem;
-  font-weight: 500;
-  cursor: pointer;
-  transition: all 0.3s;
-  margin-bottom: -2px;
-}
-
-.auth-tab:hover {
-  color: var(--text-primary);
-}
-
-.auth-tab.active {
-  color: var(--primary);
-  border-bottom-color: var(--primary);
 }
 
 .auth-form {
@@ -1864,6 +1873,18 @@ footer {
   color: var(--text-primary);
   font-size: 1.5rem;
   text-align: center;
+}
+
+.auth-form .form-group {
+  margin-bottom: 1.25rem;
+}
+
+.auth-form .form-group label {
+  color: var(--text-primary);
+}
+
+.auth-form button[type="submit"] {
+  margin-top: 0.5rem;
 }
 
 .error-message {

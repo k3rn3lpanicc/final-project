@@ -112,7 +112,15 @@ async function initApp() {
 				</div>
 			</div>
 			
-			<div id="log" class="log" style="max-height: 200px; overflow-y: auto;"></div>
+			<div class="log-section">
+				<h3>📋 Activity Log</h3>
+				<div id="log" class="log-container"></div>
+			</div>
+			
+			<footer>
+				<p>© 2024 zkSNARK Voting System. All rights reserved.</p>
+				<p style="margin-top: 0.5rem; font-size: 0.85rem;">Powered by Zero-Knowledge Proofs</p>
+			</footer>
 		</div>
 	`;
 
@@ -801,10 +809,17 @@ function attachEventListeners() {
 	}
 }
 
-function handleLogout() {
+async function handleLogout() {
 	if (confirm('Are you sure you want to logout?')) {
-		authService.logout();
-		window.location.href = '/login.html';
+		try {
+			await authService.logout();
+			window.location.href = '/login.html';
+		} catch (error) {
+			console.error('Logout error:', error);
+			// Still redirect even if logout API call fails
+			authService.clearTokens();
+			window.location.href = '/login.html';
+		}
 	}
 }
 

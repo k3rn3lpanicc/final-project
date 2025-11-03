@@ -29,7 +29,7 @@ function renderLoginPage() {
 								<label for="loginPassword">Password:</label>
 								<input type="password" id="loginPassword" name="password" required autocomplete="current-password" />
 							</div>
-							<button type="submit" class="btn btn-primary btn-lg">Login</button>
+							<button type="submit" class="btn btn-primary btn-block">Login</button>
 						</form>
 						<div id="loginError" class="error-message" style="display: none;"></div>
 					</div>
@@ -49,14 +49,17 @@ function renderLoginPage() {
 								<label for="confirmPassword">Confirm Password:</label>
 								<input type="password" id="confirmPassword" name="confirmPassword" required autocomplete="new-password" minlength="6" />
 							</div>
-							<button type="submit" class="btn btn-primary btn-lg">Register</button>
+							<button type="submit" class="btn btn-primary btn-block">Register</button>
 						</form>
 						<div id="registerError" class="error-message" style="display: none;"></div>
 					</div>
 				</div>
 			</div>
 			
-			<div id="log" class="log" style="max-height: 150px; overflow-y: auto;"></div>
+			<footer style="border: none; margin-top: 2rem;">
+				<p>© 2024 zkSNARK Voting System. All rights reserved.</p>
+				<p style="margin-top: 0.5rem; font-size: 0.85rem;">Powered by Zero-Knowledge Proofs</p>
+			</footer>
 		</div>
 	`;
 	
@@ -117,9 +120,7 @@ async function handleLogin(e: Event) {
 		submitBtn.textContent = 'Logging in...';
 		errorDiv.style.display = 'none';
 		
-		log('Logging in...', 'info');
 		await authService.login(email, password);
-		log('Login successful!', 'success');
 		
 		// Redirect to main app
 		window.location.href = '/';
@@ -127,7 +128,6 @@ async function handleLogin(e: Event) {
 		const message = error.response?.data?.message || error.message || 'Login failed';
 		errorDiv.textContent = message;
 		errorDiv.style.display = 'block';
-		log(`Login failed: ${message}`, 'error');
 		submitBtn.disabled = false;
 		submitBtn.textContent = 'Login';
 	}
@@ -157,9 +157,7 @@ async function handleRegister(e: Event) {
 		submitBtn.textContent = 'Creating account...';
 		errorDiv.style.display = 'none';
 		
-		log('Creating account...', 'info');
 		await authService.register(email, password);
-		log('Registration successful!', 'success');
 		
 		// Redirect to main app
 		window.location.href = '/';
@@ -167,23 +165,9 @@ async function handleRegister(e: Event) {
 		const message = error.response?.data?.message || error.message || 'Registration failed';
 		errorDiv.textContent = message;
 		errorDiv.style.display = 'block';
-		log(`Registration failed: ${message}`, 'error');
 		submitBtn.disabled = false;
 		submitBtn.textContent = 'Register';
 	}
-}
-
-function log(message: string, type: 'info' | 'success' | 'error' = 'info') {
-	const timestamp = new Date().toLocaleTimeString();
-	const logEntry = document.createElement('div');
-	logEntry.className = `log-entry log-${type}`;
-	logEntry.textContent = `[${timestamp}] ${message}`;
-	const logDiv = document.querySelector('#log');
-	if (logDiv) {
-		logDiv.appendChild(logEntry);
-		logDiv.scrollTop = logDiv.scrollHeight;
-	}
-	console.log(message);
 }
 
 // Check if already authenticated
