@@ -45,12 +45,15 @@ export class AdminService {
     };
   }
 
-  async listAllRequests(page: number = 1, limit: number = 10, status?: string) {
+  async listAllRequests(page: number = 1, limit: number = 10, status?: string, electionId?: number) {
     const skip = (page - 1) * limit;
     
     const whereCondition: any = {};
     if (status && ['pending', 'approved', 'rejected', 'auto_rejected'].includes(status)) {
       whereCondition.status = status as RequestStatus;
+    }
+    if (electionId !== undefined) {
+      whereCondition.electionId = electionId;
     }
 
     const [requests, total] = await this.voterRequestRepository.findAndCount({

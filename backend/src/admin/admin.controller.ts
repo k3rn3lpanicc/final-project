@@ -78,6 +78,7 @@ export class AdminController {
   @ApiQuery({ name: 'page', required: false, type: Number, example: 1, description: 'Page number (starts from 1)' })
   @ApiQuery({ name: 'limit', required: false, type: Number, example: 10, description: 'Number of items per page' })
   @ApiQuery({ name: 'status', required: false, enum: ['pending', 'approved', 'rejected', 'auto_rejected'], description: 'Filter by status' })
+  @ApiQuery({ name: 'electionId', required: false, type: Number, description: 'Filter by election ID' })
   @ApiResponse({
     status: 200,
     description: 'Paginated list of requests',
@@ -103,10 +104,12 @@ export class AdminController {
     @Query('page') page?: string,
     @Query('limit') limit?: string,
     @Query('status') status?: string,
+    @Query('electionId') electionId?: string,
   ) {
     const pageNum = page ? parseInt(page, 10) : 1;
     const limitNum = limit ? parseInt(limit, 10) : 10;
-    return this.adminService.listAllRequests(pageNum, limitNum, status);
+    const electionIdNum = electionId ? parseInt(electionId, 10) : undefined;
+    return this.adminService.listAllRequests(pageNum, limitNum, status, electionIdNum);
   }
 
   @Get('requests/pending')
