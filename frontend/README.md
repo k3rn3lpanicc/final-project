@@ -1,120 +1,345 @@
-# zkSNARK Voting Frontend Demo
+# Voter Dashboard
 
-This is a demo frontend application that demonstrates generating and verifying zkSNARK proofs in the browser.
+Web application for voters to register, generate zkSNARK proofs, and cast votes in the VoteScheme voting system.
 
-## Features
+## 📋 Overview
 
-- ✅ Generate voter credentials (ID, X, Xp)
-- ✅ Compute Poseidon hashes using poseidon-lite
-- ✅ Generate EdDSA signatures
-- ✅ Generate zkSNARK proofs using snarkjs
-- ✅ Verify proofs locally before blockchain submission
-- ✅ Download proof JSON for smart contract submission
+The Voter Dashboard is a browser-based interface that allows voters to:
+- Register with personal documents
+- Receive cryptographic credentials
+- Generate zkSNARK proofs in the browser
+- Cast encrypted votes to the blockchain
+- View election results
 
-## Setup
+## ✨ Features
 
-### Install Dependencies
+### 🔐 Registration System
+- Document upload (passport, photo)
+- Automatic credential generation
+- Secure storage of voter credentials
+- Status tracking (pending, approved, rejected)
+
+### 🧮 zkSNARK Proof Generation
+- Browser-based proof generation (10-30 seconds)
+- Uses snarkjs and circomlibjs
+- No server-side processing
+- Proof verification before submission
+
+### 🔒 Vote Encryption
+- ECDH + AES-256-GCM encryption
+- Client-side encryption
+- Vote privacy until election ends
+- Secure key exchange with election public key
+
+### 📊 Election Interface
+- View active elections
+- Browse election options
+- Real-time vote submission
+- Result viewing after election
+
+### 💼 Credential Management
+- Download credentials for backup
+- Import existing credentials
+- Credential validation
+- Signature verification
+
+## 🚀 Setup
+
+### Prerequisites
+
+- Node.js v16+
+- npm or yarn
+- MetaMask or Web3 wallet
+- Backend API running
+
+### Installation
+
 ```bash
+cd frontend
 npm install
 ```
 
-### Start Development Server
-```bash
-npx vite
+### Configuration
+
+Create `.env` file:
+
+```env
+VITE_API_URL=http://localhost:3000
+VITE_ELECTION_CONTRACT_ADDRESS=0x...
+VITE_BLOCKCHAIN_RPC=https://data-seed-prebsc-1-s1.binance.org:8545/
+VITE_CHAIN_ID=97
 ```
 
-The application will be available at http://localhost:5173/
+### Start Development Server
 
-## Usage
+```bash
+npm run dev
+```
 
-1. **Generate Credentials**: Click the button to generate random voter credentials (ID, X, Xp)
-2. **Generate Proof**: Creates a zkSNARK proof (takes 10-30 seconds)
-3. **Verify Proof**: Verifies the proof locally using the verification key
+Application available at `http://localhost:5173`
 
-## How It Works
+### Build for Production
 
-### Step 1: Credential Generation
-- Generates random values within the BN128 field
-- Computes Poseidon hashes
-- Creates EdDSA signature
+```bash
+npm run build
+npm run preview
+```
 
-### Step 2: Proof Generation
-- Prepares circuit input from credentials
-- Loads WASM circuit from `/public/circuit/VoteScheme.wasm`
-- Generates witness and proof using the zkey file
-- Returns proof and public signals
+## 📖 User Guide
 
-### Step 3: Local Verification
-- Loads verification key
-- Verifies proof matches public signals
-- Shows whether vote would be accepted on-chain
+### Step 1: Registration
 
-## Files
+1. Navigate to registration page
+2. Fill in personal information:
+   - Full name
+   - Date of birth
+   - Nationality
+   - Email
+3. Upload documents:
+   - Passport image (front page)
+   - Personal photo
+4. Submit registration
+5. Save your credentials (voterId, secretX, secretXp)
 
-- `src/zkUtils.ts` - Utility functions for zkSNARK operations
-- `src/proofGenerator.ts` - Proof generation and verification
-- `src/main.ts` - Main application logic and UI
-- `public/circuit/` - Circuit files (WASM, zkey, verification key)
+**Important**: Keep your credentials safe! You need them to vote.
 
-## Circuit Files Required
+### Step 2: Wait for Approval
 
-The following files must be in `public/circuit/`:
+1. Check registration status
+2. Admin reviews your documents
+3. Once approved, you receive a signature
+4. You can now participate in elections
 
+### Step 3: Vote
+
+1. Connect your wallet (MetaMask)
+2. Select an active election
+3. Choose your preferred option
+4. Click "Generate Proof" (takes 10-30 seconds)
+5. Review proof details
+6. Click "Submit Vote"
+7. Confirm transaction in MetaMask
+8. Wait for blockchain confirmation
+
+### Step 4: Verify
+
+1. Check transaction on block explorer
+2. Verify your vote was recorded (encrypted)
+3. View election results after voting ends
+
+## 🔧 Technical Details
+
+### Proof Generation Process
+
+```typescript
+1. Load voter credentials (voterId, secretX, secretXp)
+2. Retrieve signature from backend (R8, S, A)
+3. Compute Poseidon hashes:
+   - hashXp = Poseidon(secretXp)
+   - msg = Poseidon(voterId, secretX, hashXp)
+4. Prepare circuit inputs:
+   - Public: nullifier, electionId, issuer public key
+   - Private: voterId, secretX, secretXp, signature
+5. Generate witness using WASM circuit
+6. Generate Groth16 proof using proving key
+7. Extract proof components (a, b, c) and public signals
+```
+
+### Vote Encryption
+
+```typescript
+1. Generate random ephemeral key pair on Baby Jubjub
+2. Compute shared secret via ECDH
+3. Derive AES key from shared secret (SHA-256)
+4. Encrypt vote plaintext with AES-256-GCM
+5. Combine: R_x || R_y || IV || ciphertext
+6. Submit to smart contract
+```
+
+### Circuit Files
+
+Required files in `public/circuit/`:
 - `VoteScheme.wasm` - Compiled circuit
-- `VoteScheme_final.zkey` - Proving key
+- `VoteScheme_final.zkey` - Proving key (~50MB)
 - `verification_key.json` - Verification key
 
-These are copied from the parent project's build output.
+These files are copied from the root project during build.
 
-## Dependencies
+## 📂 Project Structure
 
-- **vite**: Build tool and dev server
-- **typescript**: Type safety
-- **poseidon-lite**: Poseidon hash (compatible with circomlib v2)
-- **circomlibjs**: EdDSA signatures and elliptic curve operations
-- **snarkjs**: zkSNARK proof generation and verification
+```
+frontend/
+├── public/
+│   ├── circuit/              # Circuit files
+│   │   ├── VoteScheme.wasm
+│   │   ├── VoteScheme_final.zkey
+│   │   └── verification_key.json
+│   └── assets/               # Images, fonts
+├── src/
+│   ├── components/           # React components
+│   │   ├── Registration.tsx
+│   │   ├── VotingInterface.tsx
+│   │   ├── ProofGenerator.tsx
+│   │   └── ElectionList.tsx
+│   ├── utils/
+│   │   ├── zkUtils.ts       # zkSNARK utilities
+│   │   ├── crypto.ts        # Encryption functions
+│   │   └── blockchain.ts    # Contract interaction
+│   ├── services/
+│   │   ├── api.ts           # Backend API calls
+│   │   └── storage.ts       # Local storage
+│   ├── types/               # TypeScript types
+│   ├── App.tsx              # Main application
+│   └── main.tsx             # Entry point
+├── vite.config.ts           # Vite configuration
+└── tsconfig.json            # TypeScript config
+```
 
-## Performance
+## 🔒 Security Considerations
 
-- Credential generation: < 1 second
-- Proof generation: 10-30 seconds (depends on hardware)
-- Proof verification: < 1 second
+### Private Key Management
+- ⚠️ Credentials stored in browser localStorage
+- ✅ Never sent to server except during registration
+- ✅ User can download/backup credentials
+- ⚠️ Clear browser data = lost credentials
 
-## Browser Compatibility
+### Proof Generation
+- ✅ All proof generation happens client-side
+- ✅ Private inputs never leave browser
+- ✅ Only proof and public signals sent to blockchain
+- ✅ Voter identity cryptographically hidden
 
-Works in modern browsers that support:
-- WebAssembly
-- BigInt
-- Crypto.getRandomValues
+### Vote Privacy
+- ✅ Votes encrypted before submission
+- ✅ Only election admin can decrypt
+- ✅ Decryption happens after election ends
+- ✅ Anyone can verify final tallies
 
-Tested on:
-- Chrome 90+
-- Firefox 90+
-- Edge 90+
-- Safari 14+
+### Recommendations for Production
+1. **Credential Backup**: Implement secure backup mechanism
+2. **Hardware Wallet**: Support hardware wallets for signing
+3. **HTTPS**: Always use HTTPS in production
+4. **Rate Limiting**: Prevent spam submissions
+5. **Session Timeout**: Auto-logout after inactivity
 
-## Production Considerations
+## 🧪 Testing
 
-For production deployment:
+### Run Tests
 
-1. **Issuer Private Key**: Should be server-side only, not in frontend
-2. **Credential Issuance**: Implement proper authentication and credential distribution
-3. **Circuit Files**: Host on CDN or optimize bundle size
-4. **Error Handling**: Add better error messages and recovery
-5. **Loading States**: Add progress indicators for long operations
-6. **Smart Contract Integration**: Add web3 integration to submit proofs on-chain
+```bash
+npm run test
+```
 
-## Security Notes
+### Test Proof Generation
 
-⚠️ **This is a demo application**. In production:
+```bash
+npm run test:proof
+```
 
-- Never expose issuer private keys in frontend code
-- Implement proper authentication before credential issuance
-- Use secure channels for credential distribution
-- Validate all inputs
-- Rate limit proof generation to prevent DoS
-- Monitor for replay attacks using nullifiers
+### Test Encryption
 
-## License
+```bash
+npm run test:crypto
+```
 
-GPL-3.0 (matching snarkjs and circom tools)
+## 📊 Performance
+
+### Proof Generation
+- Time: 10-30 seconds (hardware dependent)
+- Memory: ~500MB peak
+- Browser requirements: WebAssembly support
+
+### Vote Submission
+- Gas cost: ~300,000 gas
+- Transaction time: 3-15 seconds (network dependent)
+- Confirmation: 1-5 blocks
+
+### UI Responsiveness
+- Initial load: <2 seconds
+- Circuit loading: ~3 seconds
+- Proof generation: Shows progress indicator
+- Non-blocking UI during proof generation
+
+## 🐛 Troubleshooting
+
+### Proof Generation Fails
+- Check circuit files are in `public/circuit/`
+- Verify credentials are correct
+- Ensure signature data is complete
+- Check browser console for errors
+
+### Transaction Rejected
+- Verify wallet has sufficient balance
+- Check election is active
+- Ensure nullifier hasn't been used (no double voting)
+- Verify network connection
+
+### Wallet Connection Issues
+- Install/enable MetaMask
+- Switch to correct network (BSC Testnet)
+- Refresh page and try again
+- Check wallet permissions
+
+### Credential Lost
+- No recovery possible (by design for privacy)
+- Re-register with new credentials
+- Admin must approve new registration
+
+## 🎨 Customization
+
+### Styling
+
+Edit `src/styles/` to customize:
+- Colors and themes
+- Layout and spacing
+- Responsive breakpoints
+- Component styles
+
+### Configuration
+
+Modify `vite.config.ts` for:
+- Build optimization
+- Environment variables
+- Proxy settings
+- Plugin configuration
+
+## 🚀 Deployment
+
+### Build
+
+```bash
+npm run build
+```
+
+Output in `dist/` folder.
+
+### Deploy to CDN
+
+```bash
+# Upload dist/ to your CDN
+aws s3 sync dist/ s3://your-bucket/ --acl public-read
+
+# Or use Vercel/Netlify
+vercel --prod
+```
+
+### Environment Setup
+
+Set production environment variables:
+- API URL
+- Contract addresses
+- RPC endpoints
+- Chain IDs
+
+## 📄 License
+
+ISC License
+
+## 🆘 Support
+
+For voter dashboard issues:
+- Check browser console for errors
+- Verify wallet connection
+- Ensure backend API is running
+- Check circuit files are loaded
+- Review transaction on block explorer
