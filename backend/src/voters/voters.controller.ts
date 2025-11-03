@@ -14,7 +14,6 @@ import { diskStorage } from 'multer';
 import { extname } from 'path';
 import { VotersService } from './voters.service';
 import { CreateVoterRequestDto, VoterRequestResponseDto, SignatureDataDto } from '../common/dto';
-import type { Multer } from 'multer';
 
 @ApiTags('voters')
 @Controller('voters')
@@ -91,8 +90,8 @@ export class VotersController {
   async register(
     @UploadedFiles()
     files: {
-      passportImage?: Multer.File[];
-      photo?: Multer.File[];
+      passportImage?: Express.Multer.File[];
+      photo?: Express.Multer.File[];
     },
     @Body() createVoterRequestDto: CreateVoterRequestDto,
   ): Promise<VoterRequestResponseDto> {
