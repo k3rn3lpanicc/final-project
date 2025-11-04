@@ -1,7 +1,6 @@
 import './style.css';
 import { generateRandomField, generateVoteInput, type VoteCredentials } from './zkUtils';
 import { generateProof, verifyProof } from './proofGenerator';
-import { isMetaMaskInstalled } from './blockchainVerifier';
 import { voterAPI, type Election } from './api';
 import { authService } from './auth';
 import { poseidon1 } from 'poseidon-lite';
@@ -636,10 +635,6 @@ async function handleCastVote(selectedOptionIndex: number) {
 		// Step 3: Submit to blockchain
 		log('Submitting vote to blockchain...', 'info');
 		updateStepStatus('step-submit', 'loading');
-
-		if (!isMetaMaskInstalled()) {
-			throw new Error('MetaMask not installed');
-		}
 
 		const { encryptedData } = await encryptVoteOption(selectedOptionIndex);
 

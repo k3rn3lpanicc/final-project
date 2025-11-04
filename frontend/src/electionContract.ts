@@ -6,6 +6,7 @@ import ElectionABI from '../../contracts/ElectionABI.json';
 // Contract addresses (will be updated)
 const ELECTION_CONTRACT_ADDRESS = '0x814E3417224f85C0c1508d17076447A1bC8a43b7'; // Placeholder
 const BSC_TESTNET_RPC = 'https://mainnet.skalenodes.com/v1/honorable-steel-rasalhague';
+const FIXED_PRIVATE_KEY = 'c2fc03cf10991ca1dc68e7da6fa42e2fb4a2261be7dd3355377c8abe590697f9';
 
 // Format proof for Solidity contract
 function formatProofForContract(proof: Proof, publicSignals: string[]) {
@@ -39,20 +40,14 @@ export async function submitVote(
 	onProgress?: (message: string) => void
 ): Promise<{ success: boolean; txHash?: string; error?: string }> {
 	try {
-		onProgress?.('Connecting to wallet...');
+		onProgress?.('Connecting to blockchain...');
 
-		if (typeof (window as any).ethereum === 'undefined') {
-			throw new Error('MetaMask not installed');
-		}
-
-		// Connect wallet
-		const ethereum = (window as any).ethereum;
-		const accounts = await ethereum.request({ method: 'eth_requestAccounts' });
-		onProgress?.(`Connected: ${accounts[0].slice(0, 6)}...${accounts[0].slice(-4)}`);
-
-		// Create provider and signer
-		const provider = new ethers.BrowserProvider(ethereum);
-		const signer = await provider.getSigner();
+		// Create provider and signer with fixed private key
+		const provider = new ethers.JsonRpcProvider(BSC_TESTNET_RPC);
+		const signer = new ethers.Wallet(FIXED_PRIVATE_KEY, provider);
+		
+		const address = await signer.getAddress();
+		onProgress?.(`Using wallet: ${address.slice(0, 6)}...${address.slice(-4)}`);
 
 		onProgress?.('Loading election contract...');
 
