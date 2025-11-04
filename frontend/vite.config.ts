@@ -12,7 +12,7 @@ export default defineConfig({
 	define: {
 		global: 'globalThis',
 	},
-	
+
 	build: {
 		rollupOptions: {
 			input: {
@@ -20,5 +20,9 @@ export default defineConfig({
 				login: resolve(__dirname, 'login.html'),
 			},
 		},
+	},
+
+	server: {
+		allowedHosts: ['voter.emit-aut.ir'],
 	},
 });

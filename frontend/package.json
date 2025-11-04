@@ -14,9 +14,11 @@
 		"vite-plugin-node-polyfills": "^0.24.0"
 	},
 	"dependencies": {
+		"@types/crypto-js": "^4.2.2",
 		"axios": "^1.13.1",
 		"buffer": "^6.0.3",
 		"circomlibjs": "^0.1.7",
+		"crypto-js": "^4.2.0",
 		"ethers": "^6.15.0",
 		"poseidon-lite": "^0.3.0",
 		"snarkjs": "^0.7.5"

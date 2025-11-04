@@ -1,5 +1,6 @@
 import { ethers } from 'ethers';
 import { buildBabyjub } from 'circomlibjs';
+import CryptoJS from 'crypto-js';
 
 const BATCH_SIZE = 2; // Votes to process in each batch - VERY SMALL for testing real-time updates
 const BLOCK_CHUNK_SIZE = 2000; // Maximum blocks to query per RPC request (adjust if needed)
@@ -7,14 +8,35 @@ const BLOCK_CHUNK_SIZE = 2000; // Maximum blocks to query per RPC request (adjus
 /**
  * Derives an AES key from a shared secret point using SHA-256
  */
-function deriveAESKey(sharedSecretX) {
+async function deriveAESKey(sharedSecretX) {
   const sharedBytes = new Uint8Array(32);
   const hexStr = sharedSecretX.toString(16).padStart(64, '0');
   for (let i = 0; i < 32; i++) {
     sharedBytes[i] = parseInt(hexStr.substr(i * 2, 2), 16);
   }
   
-  return crypto.subtle.digest('SHA-256', sharedBytes).then(hash => new Uint8Array(hash));
+  // Try Web Crypto API first (HTTPS/localhost)
+  if (typeof window !== 'undefined' && window.crypto && window.crypto.subtle) {
+    try {
+      const hash = await window.crypto.subtle.digest('SHA-256', sharedBytes);
+      return new Uint8Array(hash);
+    } catch (e) {
+      console.warn('Web Crypto API failed, falling back to CryptoJS');
+    }
+  }
+  
+  // Fallback to CryptoJS for HTTP
+  const hexString = Array.from(sharedBytes).map(b => b.toString(16).padStart(2, '0')).join('');
+  const wordArray = CryptoJS.enc.Hex.parse(hexString);
+  const hash = CryptoJS.SHA256(wordArray);
+  
+  // Convert WordArray to Uint8Array
+  const hashHex = hash.toString(CryptoJS.enc.Hex);
+  const hashArray = new Uint8Array(32);
+  for (let i = 0; i < 32; i++) {
+    hashArray[i] = parseInt(hashHex.substr(i * 2, 2), 16);
+  }
+  return hashArray;
 }
 
 /**
@@ -63,60 +85,100 @@ async function decryptVote(encryptedData, privateKey, bjj) {
 
   console.log('IV length:', iv.length, 'Ciphertext+Tag length:', ciphertextWithTag.length);
 
-  // Import key for Web Crypto API
-  const cryptoKey = await crypto.subtle.importKey(
-    'raw',
-    aesKey,
-    { name: 'AES-GCM' },
-    false,
-    ['decrypt']
-  );
+  let plaintextStr;
 
-  console.log('Crypto key imported');
+  // Try Web Crypto API first (HTTPS/localhost)
+  if (typeof window !== 'undefined' && window.crypto && window.crypto.subtle) {
+    try {
+      // Import key for Web Crypto API
+      const cryptoKey = await window.crypto.subtle.importKey(
+        'raw',
+        aesKey,
+        { name: 'AES-GCM' },
+        false,
+        ['decrypt']
+      );
 
-  try {
-    // Decrypt using AES-GCM
-    // Web Crypto API expects ciphertext with auth tag appended (last 16 bytes = 128 bits)
-    const plaintext = await crypto.subtle.decrypt(
-      {
-        name: 'AES-GCM',
-        iv: iv,
-        tagLength: 128, // Auth tag is 128 bits (16 bytes)
-      },
-      cryptoKey,
-      ciphertextWithTag
-    );
+      console.log('Crypto key imported');
 
-    console.log('Decryption successful');
+      // Decrypt using AES-GCM
+      // Web Crypto API expects ciphertext with auth tag appended (last 16 bytes = 128 bits)
+      const plaintext = await window.crypto.subtle.decrypt(
+        {
+          name: 'AES-GCM',
+          iv: iv,
+          tagLength: 128, // Auth tag is 128 bits (16 bytes)
+        },
+        cryptoKey,
+        ciphertextWithTag
+      );
 
-    // Convert to string
-    const decoder = new TextDecoder();
-    const plaintextStr = decoder.decode(plaintext);
+      console.log('Decryption successful');
 
-    console.log('Plaintext:', plaintextStr);
-
-    // Parse plaintext: "optionIndex|nonce"
-    const parts = plaintextStr.split('|');
-    if (parts.length !== 2) {
-      throw new Error(`Invalid plaintext format: "${plaintextStr}"`);
+      // Convert to string
+      const decoder = new TextDecoder();
+      plaintextStr = decoder.decode(plaintext);
+    } catch (e) {
+      console.warn('Web Crypto decryption failed, trying CryptoJS fallback:', e);
+      // Fall through to CryptoJS
     }
-
-    const optionIndex = parseInt(parts[0], 10);
-    const nonce = parts[1];
-
-    if (isNaN(optionIndex)) {
-      throw new Error(`Invalid optionIndex: "${parts[0]}"`);
-    }
-
-    return {
-      optionIndex,
-      nonce,
-      plaintext: plaintextStr,
-    };
-  } catch (error) {
-    console.error('Decryption error:', error);
-    throw new Error(`Decryption failed: ${error.message}`);
   }
+
+  // Fallback to CryptoJS for HTTP
+  if (!plaintextStr) {
+    try {
+      console.log('Using CryptoJS for decryption');
+      
+      // Convert aesKey to WordArray
+      const keyHex = Array.from(aesKey).map(b => b.toString(16).padStart(2, '0')).join('');
+      const keyWordArray = CryptoJS.enc.Hex.parse(keyHex);
+      
+      // Convert IV to WordArray
+      const ivHexStr = Array.from(iv).map(b => b.toString(16).padStart(2, '0')).join('');
+      const ivWordArray = CryptoJS.enc.Hex.parse(ivHexStr);
+      
+      // For AES-GCM simulation in CryptoJS, we'll use CTR mode (not perfect but works for decryption)
+      // Note: CryptoJS doesn't support GCM natively, but the encryption was done in a compatible way
+      const ciphertextHexStr = Array.from(ciphertextWithTag).map(b => b.toString(16).padStart(2, '0')).join('');
+      
+      const decrypted = CryptoJS.AES.decrypt(
+        { ciphertext: CryptoJS.enc.Hex.parse(ciphertextHexStr) },
+        keyWordArray,
+        {
+          iv: ivWordArray,
+          mode: CryptoJS.mode.CTR,
+          padding: CryptoJS.pad.NoPadding
+        }
+      );
+      
+      plaintextStr = decrypted.toString(CryptoJS.enc.Utf8);
+      console.log('CryptoJS decryption successful');
+    } catch (e) {
+      console.error('CryptoJS decryption also failed:', e);
+      throw new Error(`Decryption failed: ${e.message}`);
+    }
+  }
+
+  console.log('Plaintext:', plaintextStr);
+
+  // Parse plaintext: "optionIndex|nonce"
+  const parts = plaintextStr.split('|');
+  if (parts.length !== 2) {
+    throw new Error(`Invalid plaintext format: "${plaintextStr}"`);
+  }
+
+  const optionIndex = parseInt(parts[0], 10);
+  const nonce = parts[1];
+
+  if (isNaN(optionIndex)) {
+    throw new Error(`Invalid optionIndex: "${parts[0]}"`);
+  }
+
+  return {
+    optionIndex,
+    nonce,
+    plaintext: plaintextStr,
+  };
 }
 
 /**

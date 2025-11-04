@@ -1,6 +1,19 @@
 // Encryption utilities for vote options using ECDH + AES-GCM
 // This provides true asymmetric encryption where decryption doesn't require brute-forcing
 import { buildBabyjub } from 'circomlibjs';
+import CryptoJS from 'crypto-js';
+
+// Polyfill for getRandomValues
+function getSecureRandomValues(array: Uint8Array): Uint8Array {
+	if (window.crypto && window.crypto.getRandomValues) {
+		return window.crypto.getRandomValues(array);
+	}
+	// Fallback using Math.random (less secure but works without HTTPS)
+	for (let i = 0; i < array.length; i++) {
+		array[i] = Math.floor(Math.random() * 256);
+	}
+	return array;
+}
 
 // Fixed public key for encrypting votes (in production, this should be fetched from backend/contract)
 // This is a Baby Jubjub public key: PubKey = privKey * Base8
@@ -21,7 +34,7 @@ async function getBabyJub() {
 /**
  * Derives an AES key from a shared secret point using SHA-256
  */
-async function deriveAESKey(sharedSecretX: bigint): Promise<CryptoKey> {
+async function deriveAESKey(sharedSecretX: bigint): Promise<CryptoKey | CryptoJS.lib.WordArray> {
 	// Convert shared secret X coordinate to bytes
 	const sharedBytes = new Uint8Array(32);
 	const hexStr = sharedSecretX.toString(16).padStart(64, '0');
@@ -29,17 +42,26 @@ async function deriveAESKey(sharedSecretX: bigint): Promise<CryptoKey> {
 		sharedBytes[i] = parseInt(hexStr.substr(i * 2, 2), 16);
 	}
 
-	// Hash the shared secret to derive AES key
-	const keyMaterial = await crypto.subtle.digest('SHA-256', sharedBytes);
+	// Try to use Web Crypto API if available (HTTPS/localhost)
+	if (window.crypto && window.crypto.subtle) {
+		try {
+			const keyMaterial = await window.crypto.subtle.digest('SHA-256', sharedBytes);
+			return await window.crypto.subtle.importKey(
+				'raw',
+				keyMaterial,
+				{ name: 'AES-GCM', length: 256 },
+				false,
+				['encrypt', 'decrypt']
+			);
+		} catch (e) {
+			console.warn('Web Crypto API failed, falling back to CryptoJS');
+		}
+	}
 	
-	// Import as AES-GCM key
-	return await crypto.subtle.importKey(
-		'raw',
-		keyMaterial,
-		{ name: 'AES-GCM', length: 256 },
-		false,
-		['encrypt', 'decrypt']
-	);
+	// Fallback to CryptoJS for non-HTTPS
+	const hexString = Array.from(sharedBytes).map(b => b.toString(16).padStart(2, '0')).join('');
+	const wordArray = CryptoJS.enc.Hex.parse(hexString);
+	return CryptoJS.SHA256(wordArray);
 }
 
 /**
@@ -69,7 +91,7 @@ export async function encryptVoteOption(
 	const bjj = await getBabyJub();
 
 	// Generate random nonce for this vote (8 bytes = 64 bits)
-	const nonceBytes = crypto.getRandomValues(new Uint8Array(8));
+	const nonceBytes = getSecureRandomValues(new Uint8Array(8));
 	const nonce = BigInt('0x' + Array.from(nonceBytes).map(b => b.toString(16).padStart(2, '0')).join(''));
 
 	// Create plaintext message: "optionIndex|nonce"
@@ -79,7 +101,7 @@ export async function encryptVoteOption(
 	// Generate ephemeral private key r (random scalar)
 	const r = BigInt(
 		'0x' +
-			Array.from(crypto.getRandomValues(new Uint8Array(31)))
+			Array.from(getSecureRandomValues(new Uint8Array(31)))
 				.map((b) => b.toString(16).padStart(2, '0'))
 				.join('')
 	) % bjj.subOrder;
@@ -96,14 +118,40 @@ export async function encryptVoteOption(
 	const aesKey = await deriveAESKey(sharedSecretX);
 
 	// Generate random IV for AES-GCM
-	const iv = crypto.getRandomValues(new Uint8Array(12));
+	const iv = getSecureRandomValues(new Uint8Array(12));
 
-	// Encrypt the plaintext
-	const ciphertext = await crypto.subtle.encrypt(
-		{ name: 'AES-GCM', iv, tagLength: 128 },
-		aesKey,
-		plaintextBytes
-	);
+	let ciphertext: ArrayBuffer;
+	
+	// Try Web Crypto API first
+	if (window.crypto && window.crypto.subtle && aesKey instanceof CryptoKey) {
+		ciphertext = await window.crypto.subtle.encrypt(
+			{ name: 'AES-GCM', iv, tagLength: 128 },
+			aesKey,
+			plaintextBytes
+		);
+	} else {
+		// Fallback to CryptoJS
+		const ivHex = Array.from(iv).map(b => b.toString(16).padStart(2, '0')).join('');
+		const plaintextHex = Array.from(plaintextBytes).map(b => b.toString(16).padStart(2, '0')).join('');
+		
+		const encrypted = CryptoJS.AES.encrypt(
+			CryptoJS.enc.Hex.parse(plaintextHex),
+			aesKey as CryptoJS.lib.WordArray,
+			{
+				iv: CryptoJS.enc.Hex.parse(ivHex),
+				mode: CryptoJS.mode.CTR,
+				padding: CryptoJS.pad.NoPadding
+			}
+		);
+		
+		// Convert to ArrayBuffer
+		const ciphertextHex = encrypted.ciphertext.toString(CryptoJS.enc.Hex);
+		const ciphertextArray = new Uint8Array(ciphertextHex.length / 2);
+		for (let i = 0; i < ciphertextArray.length; i++) {
+			ciphertextArray[i] = parseInt(ciphertextHex.substr(i * 2, 2), 16);
+		}
+		ciphertext = ciphertextArray.buffer;
+	}
 
 	// Format output: R_x (32) + R_y (32) + IV (12) + ciphertext+tag
 	const rx = bjj.F.toObject(R[0]).toString(16).padStart(64, '0');

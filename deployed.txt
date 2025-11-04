@@ -17,3 +17,18 @@ https://honorable-steel-rasalhague.explorer.mainnet.skalenodes.com/address/0x9D4
 
 Election:
 0x814E3417224f85C0c1508d17076447A1bC8a43b7
+
+
+
+Backend:
+http://104.223.121.175:4001/api
+
+Admin:
+http://104.223.121.175:3006/login.html
+
+Voter dashboard:
+http://104.223.121.175:4007/
+
+Voting count dashboard:
+http://104.223.121.175:4008/
+
