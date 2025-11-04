@@ -13,16 +13,18 @@ export class VotersService {
 		private cryptoService: CryptoService
 	) {}
 
-    passportImage: Express.Multer.File,
-    photo: Express.Multer.File,
-  ): Promise<VoterRequestResponseDto> {
-    // Check if an approved request already exists for this passport number
-    const existingApprovedRequest = await this.voterRequestRepository.findOne({
-      where: {
-        passportNumber: dto.passportNumber,
-        status: RequestStatus.APPROVED,
-      },
-    });
+	async createRequest(
+		dto: CreateVoterRequestDto,
+		passportImage: Express.Multer.File,
+		photo: Express.Multer.File
+	): Promise<VoterRequestResponseDto> {
+		// Check if an approved request already exists for this passport number
+		const existingApprovedRequest = await this.voterRequestRepository.findOne({
+			where: {
+				passportNumber: dto.passportNumber,
+				status: RequestStatus.APPROVED,
+			},
+		});
 
 		if (existingApprovedRequest) {
 			throw new BadRequestException(
