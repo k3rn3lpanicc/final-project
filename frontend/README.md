@@ -49,7 +49,6 @@ The Voter Dashboard is a browser-based interface that allows voters to:
 
 - Node.js v16+
 - npm or yarn
-- MetaMask or Web3 wallet
 - Backend API running
 
 ### Installation
@@ -112,14 +111,12 @@ npm run preview
 
 ### Step 3: Vote
 
-1. Connect your wallet (MetaMask)
-2. Select an active election
-3. Choose your preferred option
-4. Click "Generate Proof" (takes 10-30 seconds)
-5. Review proof details
-6. Click "Submit Vote"
-7. Confirm transaction in MetaMask
-8. Wait for blockchain confirmation
+1. Select an active election
+2. Choose your preferred option
+3. Click "Generate Proof" (takes 10-30 seconds)
+4. Review proof details
+5. Click "Submit Vote"
+6. Wait for blockchain confirmation
 
 ### Step 4: Verify
 
@@ -217,7 +214,7 @@ frontend/
 
 ### Recommendations for Production
 1. **Credential Backup**: Implement secure backup mechanism
-2. **Hardware Wallet**: Support hardware wallets for signing
+2. **Private Key Security**: Use environment variables for private keys
 3. **HTTPS**: Always use HTTPS in production
 4. **Rate Limiting**: Prevent spam submissions
 5. **Session Timeout**: Auto-logout after inactivity
@@ -269,16 +266,9 @@ npm run test:crypto
 - Check browser console for errors
 
 ### Transaction Rejected
-- Verify wallet has sufficient balance
 - Check election is active
 - Ensure nullifier hasn't been used (no double voting)
 - Verify network connection
-
-### Wallet Connection Issues
-- Install/enable MetaMask
-- Switch to correct network (BSC Testnet)
-- Refresh page and try again
-- Check wallet permissions
 
 ### Credential Lost
 - No recovery possible (by design for privacy)
@@ -339,7 +329,6 @@ ISC License
 
 For voter dashboard issues:
 - Check browser console for errors
-- Verify wallet connection
 - Ensure backend API is running
 - Check circuit files are loaded
 - Review transaction on block explorer
