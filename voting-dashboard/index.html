@@ -200,5 +200,15 @@
       </main>
     </div>
     <script type="module" src="/src/main.js"></script>
+    <script>
+      window.addEventListener('load', function() {
+        setTimeout(function() {
+          document.getElementById('loading-screen').classList.add('hidden');
+          setTimeout(function() {
+            document.getElementById('loading-screen').remove();
+          }, 300);
+        }, 100);
+      });
+    </script>
   </body>
 </html>
