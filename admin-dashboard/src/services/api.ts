@@ -2,7 +2,7 @@ import axios from 'axios';
 import { authService } from './auth';
 import { Request, Election, PaginatedResponse, Stats, CreateElectionData } from '../types';
 
-const API_BASE_URL = 'http://localhost:3000';
+const API_BASE_URL = 'https://votingbackend.emit-aut.ir';
 
 axios.interceptors.request.use(
   (config) => {

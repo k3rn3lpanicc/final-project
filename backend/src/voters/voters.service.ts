@@ -4,7 +4,6 @@ import { Repository } from 'typeorm';
 import { VoterRequest, RequestStatus } from '../database/voter-request.entity';
 import { CreateVoterRequestDto, VoterRequestResponseDto, SignatureDataDto } from '../common/dto';
 import { CryptoService } from '../common/crypto.service';
-import type { Multer } from 'multer';
 
 @Injectable()
 export class VotersService {
@@ -14,18 +13,16 @@ export class VotersService {
 		private cryptoService: CryptoService
 	) {}
 
-	async createRequest(
-		dto: CreateVoterRequestDto,
-		passportImage: Multer.File,
-		photo: Multer.File
-	): Promise<VoterRequestResponseDto> {
-		// Check if an approved request already exists for this passport number
-		const existingApprovedRequest = await this.voterRequestRepository.findOne({
-			where: {
-				passportNumber: dto.passportNumber,
-				status: RequestStatus.APPROVED,
-			},
-		});
+    passportImage: Express.Multer.File,
+    photo: Express.Multer.File,
+  ): Promise<VoterRequestResponseDto> {
+    // Check if an approved request already exists for this passport number
+    const existingApprovedRequest = await this.voterRequestRepository.findOne({
+      where: {
+        passportNumber: dto.passportNumber,
+        status: RequestStatus.APPROVED,
+      },
+    });
 
 		if (existingApprovedRequest) {
 			throw new BadRequestException(

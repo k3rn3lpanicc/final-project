@@ -1,3 +1,4 @@
+<<<<<<< Updated upstream
 import { ethers } from 'ethers';
 import { buildBabyjub } from 'circomlibjs';
 import CryptoJS from 'crypto-js';

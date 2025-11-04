@@ -11,4 +11,7 @@ export default defineConfig({
 	define: {
 		global: 'globalThis',
 	},
+	server: {
+				allowedHosts: ['counter.emit-aut.ir'],
+			},
 });
