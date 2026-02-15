@@ -2,6 +2,7 @@
 // This provides true asymmetric encryption where decryption doesn't require brute-forcing
 import { buildBabyjub } from 'circomlibjs';
 import CryptoJS from 'crypto-js';
+import { ENCRYPTION_PUBLIC_KEY } from './config/chains';
 
 // Polyfill for getRandomValues
 function getSecureRandomValues(array: Uint8Array): Uint8Array {
@@ -15,11 +16,10 @@ function getSecureRandomValues(array: Uint8Array): Uint8Array {
 	return array;
 }
 
-// Fixed public key for encrypting votes (in production, this should be fetched from backend/contract)
-// This is a Baby Jubjub public key: PubKey = privKey * Base8
+// Public key for encrypting votes (configured per chain/election)
 export const ELECTION_PUBLIC_KEY = {
-	x: BigInt('9350324229486977864199186023804174729698250325103440161239826812858536464745'),
-	y: BigInt('418265988263166406135396573719470131816775157186488453786003049284275271736'),
+	x: BigInt(ENCRYPTION_PUBLIC_KEY.x),
+	y: BigInt(ENCRYPTION_PUBLIC_KEY.y),
 };
 
 let babyJub: any = null;
@@ -125,7 +125,7 @@ export async function encryptVoteOption(
 	// Try Web Crypto API first
 	if (window.crypto && window.crypto.subtle && aesKey instanceof CryptoKey) {
 		ciphertext = await window.crypto.subtle.encrypt(
-			{ name: 'AES-GCM', iv, tagLength: 128 },
+			{ name: 'AES-GCM', iv: iv as Uint8Array, tagLength: 128 },
 			aesKey,
 			plaintextBytes
 		);

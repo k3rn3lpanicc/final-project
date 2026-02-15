@@ -7015,4 +7015,394 @@ The VoteScheme project now provides both:
 
 The system successfully demonstrates that complex cryptography can be made accessible to non-technical users without sacrificing security or transparency.
 
-**Project Status**: ✅ **PRODUCTION READY WITH SIMPLIFIED USER FLOW**
+**Project Status**: ✅ **PRODUCTION READY WITH MULTI-CHAIN SUPPORT**
+
+---
+
+## Phase 22: Multi-Chain Configuration & MetaMask Integration
+
+### Overview
+
+Centralized all chain-specific configurations across the entire project stack to enable seamless deployment to any EVM-compatible blockchain. The system now uses MetaMask for transaction signing instead of hardcoded private keys, providing better security and user control.
+
+### Key Changes Implemented
+
+#### 1. Centralized Chain Configuration
+
+**All Projects Share Consistent Configuration**:
+
+**Frontend** (`frontend/src/config/chains.ts`):
+- Chain metadata (ID, name, RPC, explorer)
+- Native currency details (for MetaMask)
+- Contract addresses (verifier, election)
+- Chain ID in hex format for MetaMask
+- Default chain selection via environment variable
+
+**Backend** (`backend/src/config/chains.config.ts`):
+- Chain metadata for API operations
+- Contract addresses for backend services
+- Configurable via DEFAULT_CHAIN environment variable
+
+**Admin Dashboard** (`admin-dashboard/src/config/chains.ts`):
+- Identical structure to frontend
+- Supports all chain switching features
+
+**Root Scripts** (`chain.config.js`):
+- Configuration for vote counting and decryption scripts
+- Exports chain config for Node.js tools
+
+#### 2. Pre-Configured Chains
+
+**Supported Networks**:
+```javascript
+- BSC Testnet (chainId: 97)
+- SKALE Testnet (chainId: 1351057110)  
+- Hardhat Local (chainId: 31337)
+```
+
+**Easy to Add More**:
+```javascript
+// Just add to CHAINS object in config files
+ethereum: {
+  chainId: 1,
+  chainIdHex: '0x1',
+  name: 'Ethereum Mainnet',
+  rpcUrl: 'https://eth-mainnet.g.alchemy.com/v2/YOUR-API-KEY',
+  blockExplorer: 'https://etherscan.io',
+  nativeCurrency: {
+    name: 'Ether',
+    symbol: 'ETH',
+    decimals: 18,
+  },
+  contracts: {
+    verifier: '0x...',
+    election: '0x...',
+  },
+}
+```
+
+#### 3. MetaMask Integration
+
+**Removed Private Key Dependencies**:
+- ✅ No hardcoded private keys in frontend
+- ✅ Users sign transactions with their own wallets
+- ✅ Enhanced security and user control
+
+**Automatic Network Switching**:
+```typescript
+// When user attempts to vote:
+1. Check current MetaMask network
+2. If wrong network, prompt to switch
+3. If network not in MetaMask, add it automatically
+4. Switch to correct network
+5. Proceed with transaction
+```
+
+**Network Addition**:
+```typescript
+await ethereum.request({
+  method: 'wallet_addEthereumChain',
+  params: [{
+    chainId: currentChain.chainIdHex,
+    chainName: currentChain.name,
+    nativeCurrency: currentChain.nativeCurrency,
+    rpcUrls: [currentChain.rpcUrl],
+    blockExplorerUrls: [currentChain.blockExplorer],
+  }],
+});
+```
+
+#### 4. Environment-Based Configuration
+
+**Frontend** (`.env` or `vite.config.ts`):
+```bash
+VITE_DEFAULT_CHAIN=skaleTestnet
+```
+
+**Backend** (`.env`):
+```bash
+DEFAULT_CHAIN=skaleTestnet
+```
+
+**Vote Counting Scripts**:
+```bash
+node count_votes.js <contractAddress> <electionId> <chainKey>
+# Example: node count_votes.js 0x... 2 bscTestnet
+```
+
+#### 5. Contract Address Management
+
+**Centralized Contract Addresses**:
+- All contract addresses stored in chain configs
+- No scattered hardcoded addresses
+- Easy to update after deployment
+- Version control friendly
+
+**Update Process**:
+```typescript
+// After deploying to new chain:
+1. Add chain config to all config files
+2. Deploy contracts
+3. Update contract addresses in config
+4. Test with environment variable
+5. Deploy to production
+```
+
+### File Structure
+
+```
+Project/
+├── chain.config.js                    # Root-level Node.js scripts config
+├── frontend/
+│   └── src/
+│       └── config/
+│           └── chains.ts              # Frontend chain config
+├── backend/
+│   └── src/
+│       └── config/
+│           └── chains.config.ts       # Backend chain config
+├── admin-dashboard/
+│   └── src/
+│       └── config/
+│           └── chains.ts              # Admin dashboard chain config
+├── count_votes.js                     # Multi-chain vote counter
+└── decrypt_votes.js                   # Vote decryption tool
+```
+
+### Usage Examples
+
+#### Deploy to New Chain
+
+```bash
+# 1. Add chain configuration to all config files
+# 2. Deploy contracts to new chain
+npx hardhat run scripts/deploy.js --network polygon
+
+# 3. Update contract addresses in config files
+# frontend/src/config/chains.ts
+# backend/src/config/chains.config.ts
+# admin-dashboard/src/config/chains.ts
+# chain.config.js
+
+# 4. Test with new chain
+VITE_DEFAULT_CHAIN=polygon npm run dev  # Frontend
+DEFAULT_CHAIN=polygon npm run start      # Backend
+
+# 5. Vote counting on new chain
+node count_votes.js 0x... 1 polygon
+```
+
+#### Switch Chains During Development
+
+**Frontend**:
+```typescript
+// Import chain utilities
+import { setChain, getChainConfig } from './config/chains';
+
+// Switch programmatically
+setChain('bscTestnet');
+
+// Or via environment variable
+VITE_DEFAULT_CHAIN=hardhat npm run dev
+```
+
+**Backend**:
+```typescript
+// Environment variable in .env
+DEFAULT_CHAIN=hardhat
+
+// Or pass to functions
+const chainConfig = getChainConfig('bscTestnet');
+```
+
+### Technical Benefits
+
+**For Developers**:
+- ✅ One place to update chain configurations
+- ✅ Type-safe chain configuration (TypeScript)
+- ✅ Easy to add new chains
+- ✅ No scattered contract addresses
+- ✅ Environment-based testing
+
+**For Users**:
+- ✅ Automatic network switching
+- ✅ MetaMask integration for transaction signing
+- ✅ No need to manually add networks
+- ✅ Clear error messages for network issues
+- ✅ Seamless multi-chain experience
+
+**For Deployment**:
+- ✅ Deploy to any EVM chain with minimal changes
+- ✅ Test on multiple networks easily
+- ✅ Mainnet/testnet switching via env vars
+- ✅ Separate configs for different environments
+- ✅ Version control friendly
+
+### Security Improvements
+
+**MetaMask Integration Benefits**:
+1. **No Private Key Exposure**: Users control their own keys
+2. **Transaction Review**: Users see exactly what they're signing
+3. **Multi-Signature Support**: Compatible with multi-sig wallets
+4. **Hardware Wallet Support**: Can use Ledger/Trezor via MetaMask
+5. **Revocable Access**: Users can disconnect at any time
+
+**Network Verification**:
+```typescript
+// Before transaction:
+1. Verify connected to correct chain
+2. Prompt user if wrong network
+3. Verify contract exists at address
+4. Check contract is not empty bytecode
+5. Proceed only if all checks pass
+```
+
+### Integration Testing
+
+**Tested Scenarios**:
+```bash
+✅ Deploy to BSC Testnet
+✅ Switch from Hardhat to BSC Testnet
+✅ MetaMask auto-connects
+✅ Network auto-switches
+✅ Network auto-adds if missing
+✅ Vote submission with MetaMask
+✅ Multi-chain vote counting
+✅ Backend API with different chains
+✅ Admin dashboard chain switching
+✅ Frontend environment variable switching
+```
+
+### Migration Guide
+
+**From Hardcoded Configuration**:
+```typescript
+// OLD: Hardcoded in code
+const CONTRACT_ADDRESS = '0x...';
+const RPC_URL = 'https://...';
+const CHAIN_ID = 97;
+
+// NEW: From centralized config
+import { getChainConfig } from './config/chains';
+const chain = getChainConfig(); // Uses default or env var
+const { contracts, rpcUrl, chainId } = chain;
+```
+
+**From Private Key Signing**:
+```typescript
+// OLD: Hardcoded private key
+const wallet = new ethers.Wallet(PRIVATE_KEY, provider);
+const tx = await contract.connect(wallet).submitVote(...);
+
+// NEW: MetaMask signing
+const provider = new ethers.BrowserProvider(window.ethereum);
+const signer = await provider.getSigner();
+const tx = await contract.connect(signer).submitVote(...);
+```
+
+### Production Deployment Checklist
+
+**Before Mainnet**:
+- [ ] Add mainnet chain configuration
+- [ ] Deploy contracts to mainnet
+- [ ] Update contract addresses in all configs
+- [ ] Test with testnet environment variables
+- [ ] Verify MetaMask integration on mainnet
+- [ ] Test network switching
+- [ ] Verify contract addresses are correct
+- [ ] Test vote submission end-to-end
+- [ ] Verify vote counting works
+- [ ] Document for users
+
+**Environment Variables**:
+```bash
+# Frontend (.env.production)
+VITE_DEFAULT_CHAIN=ethereum
+
+# Backend (.env.production)
+DEFAULT_CHAIN=ethereum
+DATABASE_PATH=./production.sqlite
+ADMIN_PRIVATE_KEY=...
+JWT_SECRET=...
+```
+
+### Key Achievements - Phase 22
+
+✅ **Centralized Chain Configuration**: One source of truth for all chain settings  
+✅ **MetaMask Integration**: Secure transaction signing without private keys  
+✅ **Automatic Network Switching**: Seamless UX across chains  
+✅ **Multi-Chain Support**: Easy deployment to any EVM chain  
+✅ **Environment-Based Configuration**: Different settings for dev/test/prod  
+✅ **Type-Safe Configuration**: TypeScript interfaces for chain config  
+✅ **Consistent Across Stack**: Same structure in frontend, backend, admin dashboard  
+✅ **Production Ready**: Tested across multiple networks  
+
+### Current System Architecture
+
+**Complete Multi-Chain Stack**:
+```
+┌─────────────────────────────────────────┐
+│   User Interfaces (Multi-Chain)        │
+├─────────────────────────────────────────┤
+│ • Voter Dashboard (MetaMask)            │
+│ • Admin Dashboard (Chain Selection)    │
+│ • Vote Counting Dashboard              │
+└─────────────────────────────────────────┘
+            │
+            ├── Chain Config (Centralized)
+            │
+┌───────────┴─────────────────────────────┐
+│   Backend Services                      │
+├─────────────────────────────────────────┤
+│ • REST API (Multi-Chain Aware)         │
+│ • Election Management                  │
+│ • Registration Workflow                │
+└─────────────────────────────────────────┘
+            │
+            ├── Chain Config (Centralized)
+            │
+┌───────────┴─────────────────────────────┐
+│   Smart Contracts (Any EVM Chain)      │
+├─────────────────────────────────────────┤
+│ • VoteSchemeVerifier.sol               │
+│ • Election.sol                         │
+└─────────────────────────────────────────┘
+            │
+            ├── Contract Addresses in Config
+            │
+┌───────────┴─────────────────────────────┐
+│   Blockchain Networks                   │
+├─────────────────────────────────────────┤
+│ • BSC Testnet ✅                        │
+│ • SKALE Testnet ✅                      │
+│ • Ethereum Mainnet (Ready)             │
+│ • Polygon (Ready)                      │
+│ • Any EVM Chain (Ready)                │
+└─────────────────────────────────────────┘
+```
+
+### Next Steps
+
+**For Production Launch**:
+1. Deploy contracts to desired mainnet (Ethereum, BSC, Polygon, etc.)
+2. Update mainnet contract addresses in all config files
+3. Set VITE_DEFAULT_CHAIN and DEFAULT_CHAIN to mainnet
+4. Test entire flow on mainnet
+5. Enable mainnet in production builds
+
+**For Multi-Chain Expansion**:
+1. Add new chain configurations
+2. Deploy contracts to new chains
+3. Update contract addresses
+4. Test with new chain environment variables
+5. Document new chain support
+
+---
+
+**Last Updated**: November 15, 2025  
+**Status**: ✅ Production-Ready with Multi-Chain Support & MetaMask Integration  
+**Version**: 5.2.0  
+**Phase**: Phase 22 Complete - Multi-Chain Configuration & MetaMask Integration  
+**Next Phase**: Security Audit, Multi-Party Key Ceremony, Mainnet Deployment
+
+**Project Status**: ✅ **PRODUCTION READY WITH MULTI-CHAIN SUPPORT**

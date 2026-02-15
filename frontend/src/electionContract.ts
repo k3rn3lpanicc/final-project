@@ -2,11 +2,7 @@
 import { ethers } from 'ethers';
 import type { Proof } from './proofGenerator';
 import ElectionABI from '../../contracts/ElectionABI.json';
-
-// Contract addresses (will be updated)
-const ELECTION_CONTRACT_ADDRESS = '0x814E3417224f85C0c1508d17076447A1bC8a43b7'; // Placeholder
-const BSC_TESTNET_RPC = 'https://mainnet.skalenodes.com/v1/honorable-steel-rasalhague';
-const FIXED_PRIVATE_KEY = 'c2fc03cf10991ca1dc68e7da6fa42e2fb4a2261be7dd3355377c8abe590697f9';
+import { getChainConfig, type ChainConfig } from './config/chains';
 
 // Transaction queue for managing concurrent submissions
 class TransactionQueue {
@@ -65,6 +61,81 @@ class TransactionQueue {
 
 const txQueue = new TransactionQueue();
 
+// Get current chain configuration
+let currentChain: ChainConfig = getChainConfig();
+
+// Update chain configuration
+export function setChain(chainKey: string) {
+	currentChain = getChainConfig(chainKey);
+}
+
+// Check if MetaMask is installed
+export function isMetaMaskInstalled(): boolean {
+	return typeof (window as any).ethereum !== 'undefined';
+}
+
+// Connect to MetaMask and ensure correct chain
+export async function connectWallet(): Promise<string> {
+	if (!isMetaMaskInstalled()) {
+		throw new Error('MetaMask is not installed. Please install MetaMask to continue.');
+	}
+
+	const ethereum = (window as any).ethereum;
+
+	try {
+		// Request account access
+		const accounts = await ethereum.request({ method: 'eth_requestAccounts' });
+
+		// Check current chain
+		const chainIdHex = await ethereum.request({ method: 'eth_chainId' });
+		const chainIdDec = parseInt(chainIdHex, 16);
+
+		if (chainIdDec !== currentChain.chainId) {
+			// Try to switch to the correct chain
+			try {
+				await ethereum.request({
+					method: 'wallet_switchEthereumChain',
+					params: [{ chainId: currentChain.chainIdHex }],
+				});
+			} catch (switchError: any) {
+				// Chain not added, try to add it
+				if (switchError.code === 4902) {
+					await ethereum.request({
+						method: 'wallet_addEthereumChain',
+						params: [
+							{
+								chainId: currentChain.chainIdHex,
+								chainName: currentChain.name,
+								nativeCurrency: currentChain.nativeCurrency,
+								rpcUrls: [currentChain.rpcUrl],
+								blockExplorerUrls: [currentChain.blockExplorer],
+							},
+						],
+					});
+				} else {
+					throw switchError;
+				}
+			}
+		}
+
+		return accounts[0];
+	} catch (error) {
+		console.error('Error connecting wallet:', error);
+		throw error;
+	}
+}
+
+// Get current wallet address
+export async function getCurrentWallet(): Promise<string | null> {
+	if (!isMetaMaskInstalled()) {
+		return null;
+	}
+
+	const ethereum = (window as any).ethereum;
+	const accounts = await ethereum.request({ method: 'eth_accounts' });
+	return accounts[0] || null;
+}
+
 // Format proof for Solidity contract
 function formatProofForContract(proof: Proof, publicSignals: string[]) {
 	const pA = [proof.pi_a[0], proof.pi_a[1]];
@@ -83,7 +154,7 @@ function formatProofForContract(proof: Proof, publicSignals: string[]) {
 }
 
 /**
- * Submit vote to the election contract
+ * Submit vote to the election contract using MetaMask
  * @param proof The zkSNARK proof
  * @param publicSignals The public signals from proof generation
  * @param encryptedVote The encrypted vote option
@@ -99,29 +170,31 @@ export async function submitVote(
 	// Queue the transaction to prevent nonce conflicts
 	return txQueue.add(async () => {
 		try {
-			onProgress?.('Connecting to blockchain...');
+			onProgress?.('Connecting to MetaMask...');
 
-			// Create provider and signer with fixed private key
-			const provider = new ethers.JsonRpcProvider(BSC_TESTNET_RPC);
-			const signer = new ethers.Wallet(FIXED_PRIVATE_KEY, provider);
-			
-			const address = await signer.getAddress();
-			onProgress?.(`Using wallet: ${address.slice(0, 6)}...${address.slice(-4)}`);
+			// Connect wallet
+			const walletAddress = await connectWallet();
+			onProgress?.(`Connected: ${walletAddress.slice(0, 6)}...${walletAddress.slice(-4)}`);
+
+			// Create provider and signer from MetaMask
+			const provider = new ethers.BrowserProvider((window as any).ethereum);
+			const signer = await provider.getSigner();
 
 			onProgress?.('Loading election contract...');
 
 			// Check if contract exists
-			const code = await provider.getCode(ELECTION_CONTRACT_ADDRESS);
+			const contractAddress = currentChain.contracts.election;
+			const code = await provider.getCode(contractAddress);
 			if (code === '0x') {
 				throw new Error(
-					`No contract found at address ${ELECTION_CONTRACT_ADDRESS}. Please ensure the contract is deployed.`
+					`No contract found at address ${contractAddress}. Please ensure the contract is deployed on ${currentChain.name}.`
 				);
 			}
 			onProgress?.('✅ Contract found');
 
 			// Create contract instance
 			const electionContract = new ethers.Contract(
-				ELECTION_CONTRACT_ADDRESS,
+				contractAddress,
 				ElectionABI,
 				signer
 			);
@@ -154,20 +227,13 @@ export async function submitVote(
 				nullifierHash,
 			});
 
-			// Get current nonce and increment using queue manager
-			const baseNonce = await provider.getTransactionCount(address, 'pending');
-			const nonce = txQueue.getNextNonce(baseNonce);
-			
-			onProgress?.(`Submitting with nonce ${nonce}...`);
-
-			// Submit transaction with explicit nonce
+			// Submit transaction (MetaMask will handle nonce automatically)
 			const tx = await electionContract.submitVote(
 				formattedProof.pA,
 				formattedProof.pB,
 				formattedProof.pC,
 				formattedProof.pubSignals,
-				encryptedVote,
-				{ nonce }
+				encryptedVote
 			);
 
 			onProgress?.('⏳ Waiting for transaction confirmation...');
@@ -198,6 +264,8 @@ export async function submitVote(
 			errorMessage = 'Proof verification failed! Please regenerate your proof.';
 		} else if (errorMessage.includes('Issuer A mismatch')) {
 			errorMessage = 'Your credentials were not issued by the authorized admin!';
+		} else if (errorMessage.includes('user rejected')) {
+			errorMessage = 'Transaction rejected by user';
 		}
 
 		return {
@@ -219,9 +287,9 @@ export async function checkIfVoted(
 	nullifierHash: string
 ): Promise<boolean> {
 	try {
-		const provider = new ethers.JsonRpcProvider(BSC_TESTNET_RPC);
+		const provider = new ethers.JsonRpcProvider(currentChain.rpcUrl);
 		const contract = new ethers.Contract(
-			ELECTION_CONTRACT_ADDRESS,
+			currentChain.contracts.election,
 			ElectionABI,
 			provider
 		);
@@ -244,9 +312,9 @@ export async function getElectionInfo(electionId: bigint): Promise<{
 	active: boolean;
 }> {
 	try {
-		const provider = new ethers.JsonRpcProvider(BSC_TESTNET_RPC);
+		const provider = new ethers.JsonRpcProvider(currentChain.rpcUrl);
 		const contract = new ethers.Contract(
-			ELECTION_CONTRACT_ADDRESS,
+			currentChain.contracts.election,
 			ElectionABI,
 			provider
 		);
@@ -263,15 +331,22 @@ export async function getElectionInfo(electionId: bigint): Promise<{
 }
 
 /**
- * Get the election contract address
+ * Get the election contract address for current chain
  */
 export function getElectionContractAddress(): string {
-	return ELECTION_CONTRACT_ADDRESS;
+	return currentChain.contracts.election;
 }
 
 /**
- * Get explorer link for transaction
+ * Get explorer link for transaction on current chain
  */
 export function getExplorerLink(txHash: string): string {
-	return `https://testnet.bscscan.com/tx/${txHash}`;
+	return `${currentChain.blockExplorer}/tx/${txHash}`;
+}
+
+/**
+ * Get current chain info
+ */
+export function getCurrentChain(): ChainConfig {
+	return currentChain;
 }

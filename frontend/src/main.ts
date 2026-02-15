@@ -5,7 +5,16 @@ import { voterAPI, type Election } from './api';
 import { authService } from './auth';
 import { poseidon1 } from 'poseidon-lite';
 import { encryptVoteOption } from './encryption';
-import { submitVote, getExplorerLink as getVoteExplorerLink } from './electionContract';
+import { 
+	submitVote, 
+	getExplorerLink as getVoteExplorerLink,
+	connectWallet,
+	isMetaMaskInstalled,
+	getCurrentWallet,
+	getCurrentChain,
+	setChain
+} from './electionContract';
+import { CHAINS } from './config/chains';
 
 // Circuit file paths
 const WASM_PATH = '/circuit/VoteScheme.wasm';
@@ -24,6 +33,7 @@ interface VoterCredentialData {
 let voterCredentials: Map<number, VoterCredentialData> = new Map();
 let elections: Election[] = [];
 let selectedElectionId: number | null = null;
+let connectedWallet: string | null = null;
 
 // DOM Elements
 const app = document.querySelector<HTMLDivElement>('#app')!;
@@ -89,6 +99,9 @@ function log(message: string, type: 'info' | 'success' | 'error' = 'info') {
 async function initApp() {
 	loadCredentials();
 
+	// Check if wallet is already connected
+	connectedWallet = await getCurrentWallet();
+
 	app.innerHTML = `
 		<div class="container">
 			<header>
@@ -97,9 +110,26 @@ async function initApp() {
 						<h1>🗳️ Voter Dashboard</h1>
 						<p>Zero-Knowledge Proof Voting System</p>
 					</div>
-					<button id="logoutBtn" class="btn btn-secondary">Logout</button>
+					<div class="header-actions">
+						${renderWalletConnection()}
+						<button id="logoutBtn" class="btn btn-secondary">Logout</button>
+					</div>
 				</div>
 			</header>
+			
+			<div class="chain-selector">
+				<label for="chainSelect">📡 Network:</label>
+				<select id="chainSelect" class="chain-select">
+					${Object.entries(CHAINS).map(([key, chain]) => 
+						`<option value="${key}" ${getCurrentChain().chainId === chain.chainId ? 'selected' : ''}>
+							${chain.name}
+						</option>`
+					).join('')}
+				</select>
+				<span class="chain-info">
+					${getCurrentChain().name} (Chain ID: ${getCurrentChain().chainId})
+				</span>
+			</div>
 			
 			<div class="main-content">
 				<div id="electionsSection">
@@ -125,6 +155,32 @@ async function initApp() {
 
 	attachEventListeners();
 	await loadElections();
+}
+
+function renderWalletConnection() {
+	if (!isMetaMaskInstalled()) {
+		return `
+			<div class="wallet-status wallet-error">
+				<span>⚠️ MetaMask not installed</span>
+				<a href="https://metamask.io/download/" target="_blank" class="btn btn-small">Install MetaMask</a>
+			</div>
+		`;
+	}
+
+	if (connectedWallet) {
+		return `
+			<div class="wallet-status wallet-connected">
+				<span>🟢 ${connectedWallet.slice(0, 6)}...${connectedWallet.slice(-4)}</span>
+				<button id="disconnectWalletBtn" class="btn btn-small">Disconnect</button>
+			</div>
+		`;
+	}
+
+	return `
+		<div class="wallet-status wallet-disconnected">
+			<button id="connectWalletBtn" class="btn btn-primary">Connect Wallet</button>
+		</div>
+	`;
 }
 
 function renderElectionsSection() {
@@ -802,6 +858,88 @@ function attachEventListeners() {
 	if (logoutBtn) {
 		logoutBtn.addEventListener('click', handleLogout);
 	}
+
+	// Connect wallet button
+	const connectWalletBtn = document.querySelector('#connectWalletBtn');
+	if (connectWalletBtn) {
+		connectWalletBtn.addEventListener('click', handleConnectWallet);
+	}
+
+	// Disconnect wallet button
+	const disconnectWalletBtn = document.querySelector('#disconnectWalletBtn');
+	if (disconnectWalletBtn) {
+		disconnectWalletBtn.addEventListener('click', handleDisconnectWallet);
+	}
+
+	// Chain selector
+	const chainSelect = document.querySelector('#chainSelect');
+	if (chainSelect) {
+		chainSelect.addEventListener('change', handleChainChange);
+	}
+
+	// Listen for MetaMask account changes
+	if (isMetaMaskInstalled()) {
+		const ethereum = (window as any).ethereum;
+		ethereum.on('accountsChanged', handleAccountsChanged);
+		ethereum.on('chainChanged', handleChainChanged);
+	}
+}
+
+async function handleConnectWallet() {
+	try {
+		log('Connecting to MetaMask...', 'info');
+		connectedWallet = await connectWallet();
+		log(`✅ Connected: ${connectedWallet}`, 'success');
+		await initApp(); // Refresh UI
+	} catch (error: any) {
+		log(`❌ Failed to connect wallet: ${error.message}`, 'error');
+	}
+}
+
+function handleDisconnectWallet() {
+	connectedWallet = null;
+	log('Wallet disconnected', 'info');
+	initApp(); // Refresh UI
+}
+
+async function handleChainChange(event: Event) {
+	const select = event.target as HTMLSelectElement;
+	const chainKey = select.value;
+	
+	try {
+		log(`Switching to ${CHAINS[chainKey].name}...`, 'info');
+		setChain(chainKey);
+		
+		// If wallet is connected, try to switch chain in MetaMask
+		if (connectedWallet && isMetaMaskInstalled()) {
+			await connectWallet(); // This will prompt chain switch
+		}
+		
+		log(`✅ Switched to ${CHAINS[chainKey].name}`, 'success');
+		await initApp(); // Refresh UI
+	} catch (error: any) {
+		log(`❌ Failed to switch chain: ${error.message}`, 'error');
+		// Revert selection
+		select.value = Object.keys(CHAINS).find(k => CHAINS[k].chainId === getCurrentChain().chainId) || 'skaleTestnet';
+	}
+}
+
+function handleAccountsChanged(accounts: string[]) {
+	if (accounts.length === 0) {
+		// User disconnected wallet
+		handleDisconnectWallet();
+	} else if (accounts[0] !== connectedWallet) {
+		// User switched account
+		connectedWallet = accounts[0];
+		log(`Wallet switched to: ${connectedWallet}`, 'info');
+		initApp(); // Refresh UI
+	}
+}
+
+function handleChainChanged() {
+	// MetaMask recommends reloading the page on chain change
+	log('Chain changed, reloading...', 'info');
+	window.location.reload();
 }
 
 async function handleLogout() {

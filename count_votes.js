@@ -1,8 +1,3 @@
-// Vote counting script for election administrators
-// This script reads VoteSubmitted events from the Election contract,
-// decrypts votes using the election private key, and counts them
-// Optimized for handling millions of votes with parallel processing
-
 import { ethers } from 'ethers';
 import { buildBabyjub } from 'circomlibjs';
 import crypto from 'crypto';
@@ -11,6 +6,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { Worker } from 'worker_threads';
 import os from 'os';
+import { getChainConfig } from './chain.config.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -346,21 +342,29 @@ async function main() {
 	const args = process.argv.slice(2);
 
 	if (args.length < 2) {
-		console.log('Usage: node count_votes.js <contractAddress> <electionId> [rpcUrl]');
-		console.log('\nExample:');
-		console.log(
-			'  node count_votes.js 0x1234... 1 https://data-seed-prebsc-1-s1.binance.org:8545/'
-		);
-		console.log('  node count_votes.js 0x1234... 1 http://127.0.0.1:8545/');
-		console.log('\nDefault RPC: http://127.0.0.1:8545/ (local hardhat node)');
+		console.log('Usage: node count_votes.js <electionId> <chain> [contractAddress]');
+		console.log('\nChain options: bscTestnet, skaleTestnet, hardhat');
+		console.log('\nExamples:');
+		console.log('  node count_votes.js 1 skaleTestnet');
+		console.log('  node count_votes.js 2 hardhat');
+		console.log('  node count_votes.js 1 bscTestnet 0x1234...');
+		console.log('\nNote: Contract address is optional and will be read from chain config');
 		process.exit(1);
 	}
 
-	const contractAddress = args[0];
-	const electionId = args[1];
-	const rpcUrl = args[2] || 'http://127.0.0.1:8545/';
+	const electionId = args[0];
+	const chainKey = args[1];
+	const customContractAddress = args[2];
 
 	try {
+		const chainConfig = getChainConfig(chainKey);
+		const contractAddress = customContractAddress || chainConfig.contracts.election;
+		const rpcUrl = chainConfig.rpcUrl;
+
+		console.log(`\nUsing chain: ${chainConfig.name}`);
+		console.log(`Contract: ${contractAddress}`);
+		console.log(`RPC: ${rpcUrl}\n`);
+
 		await countVotes(contractAddress, electionId, rpcUrl);
 	} catch (error) {
 		console.error('\n❌ Error:', error.message);
