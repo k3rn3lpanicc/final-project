@@ -33,3 +33,4 @@ input.json
 npm-debug.log*
 
 artifacts/*
+cache/*
