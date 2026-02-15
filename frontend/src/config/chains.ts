@@ -30,8 +30,8 @@ export const CHAINS: Record<string, ChainConfig> = {
 			decimals: 18,
 		},
 		contracts: {
-			verifier: '0xD8dc4B2a315012bCae0987f1758B7861BD266E78',
-			election: '0x814E3417224f85C0c1508d17076447A1bC8a43b7',
+			verifier: '0xFA38C5120778d61DbdA2A4D430A568727077C1d3',
+			election: '0x4ad903025168279466346a58D9C508B741D30D77',
 		},
 	},
 	skaleTestnet: {
@@ -74,16 +74,16 @@ export const DEFAULT_CHAIN_KEY = (import.meta.env.VITE_DEFAULT_CHAIN as string) 
 export function getChainConfig(chainKey?: string): ChainConfig {
 	const key = chainKey || DEFAULT_CHAIN_KEY;
 	const config = CHAINS[key];
-	
+
 	if (!config) {
 		throw new Error(`Chain configuration not found for: ${key}`);
 	}
-	
+
 	return config;
 }
 
 export function getChainByChainId(chainId: number): ChainConfig | undefined {
-	return Object.values(CHAINS).find(chain => chain.chainId === chainId);
+	return Object.values(CHAINS).find((chain) => chain.chainId === chainId);
 }
 
 // Encryption public key (can be overridden per chain if needed)

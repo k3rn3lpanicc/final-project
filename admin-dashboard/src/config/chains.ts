@@ -53,14 +53,14 @@ export const DEFAULT_CHAIN_KEY = (import.meta.env.VITE_DEFAULT_CHAIN as string) 
 export function getChainConfig(chainKey?: string): ChainConfig {
 	const key = chainKey || DEFAULT_CHAIN_KEY;
 	const config = CHAINS[key];
-	
+
 	if (!config) {
 		throw new Error(`Chain configuration not found for: ${key}`);
 	}
-	
+
 	return config;
 }
 
 export function getChainByChainId(chainId: number): ChainConfig | undefined {
-	return Object.values(CHAINS).find(chain => chain.chainId === chainId);
+	return Object.values(CHAINS).find((chain) => chain.chainId === chainId);
 }
