@@ -1,6 +1,6 @@
 /**
  * Vote Counting Performance Benchmark
- * 
+ *
  * This script benchmarks the complete voting lifecycle and measures vote counting performance:
  * 1. Deploys contracts (Verifier and Voting contract)
  * 2. Creates an election
@@ -8,12 +8,12 @@
  * 4. Retrieves all votes from the blockchain
  * 5. Decrypts and counts all votes
  * 6. Reports average vote counting performance (votes/second)
- * 
+ *
  * Prerequisites:
  * - Hardhat local node running on http://127.0.0.1:8545
  * - Compiled contracts in artifacts/contracts/
  * - Circuit files in build/VoteScheme_js/ and VoteScheme_final.zkey
- * 
+ *
  * Usage: node benchmark_vote_counting.js
  */
 
@@ -30,12 +30,13 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 // Configuration
-const NUM_VOTES = 20000;
+const NUM_VOTES = 10;
 const NUM_OPTIONS = 4;
+const PARALLEL_BATCH_SIZE = 5; // Number of votes to submit in parallel (reduced to avoid memory issues)
 
 // Election private key from decrypt_votes.js
 const ELECTION_PRIVATE_KEY = BigInt(
-	'250082668618633646334213584719494925374420844776732603861415520274085646643'
+	'250082668618633646334213584719494925374420844776732603861415520274085646643',
 );
 
 const ELECTION_PUBLIC_KEY = {
@@ -46,12 +47,12 @@ const ELECTION_PUBLIC_KEY = {
 // Admin private key for signing
 const ADMIN_PRIVATE_KEY = Buffer.from(
 	'f18a1ad9b6d2d7d9fc8e9f8c7e6d5c4b3a29180706050403020100fffefdfcfbfaf9f8',
-	'hex'
+	'hex',
 );
 
 // Load contract ABIs
 const electionABI = JSON.parse(
-	fs.readFileSync(path.join(__dirname, 'contracts', 'ElectionABI.json'), 'utf8')
+	fs.readFileSync(path.join(__dirname, 'contracts', 'ElectionABI.json'), 'utf8'),
 );
 
 // Utility functions
@@ -151,11 +152,13 @@ async function decryptVote(encryptedData, privateKey) {
 	const tag = ciphertextAndTag.slice(-16);
 
 	// Compute shared secret S = privKey * R
-	const R = [R_x, R_y];
+	const F = bjj.F;
+	const R = [F.e(R_x), F.e(R_y)];
 	const sharedSecret = bjj.mulPointEscalar(R, privateKey);
 
-	// Derive AES key
-	const aesKey = deriveAESKey(sharedSecret[0]);
+	// Derive AES key - extract BigInt from field element
+	const sharedSecretX = BigInt(F.toObject(sharedSecret[0]));
+	const aesKey = deriveAESKey(sharedSecretX);
 
 	// Decrypt
 	const decipher = crypto.createDecipheriv('aes-256-gcm', aesKey, iv);
@@ -212,7 +215,7 @@ async function generateProof(eddsa, babyjub, issuerPrivKey, issuerPubKey, electi
 	const { proof, publicSignals } = await snarkjs.groth16.fullProve(
 		circuitInput,
 		wasmPath,
-		zkeyPath
+		zkeyPath,
 	);
 
 	return { proof, publicSignals, nullifierHash };
@@ -263,28 +266,40 @@ async function runBenchmark() {
 	// Load contract factories
 	const helperArtifact = JSON.parse(
 		fs.readFileSync(
-			path.join(__dirname, 'artifacts', 'contracts', 'VoteSchemeHelper.sol', 'ProofHelper.json'),
-			'utf8'
-		)
+			path.join(
+				__dirname,
+				'artifacts',
+				'contracts',
+				'VoteSchemeHelper.sol',
+				'ProofHelper.json',
+			),
+			'utf8',
+		),
 	);
 	const verifierArtifact = JSON.parse(
 		fs.readFileSync(
-			path.join(__dirname, 'artifacts', 'contracts', 'VoteSchemeVerifier.sol', 'Groth16Verifier.json'),
-			'utf8'
-		)
+			path.join(
+				__dirname,
+				'artifacts',
+				'contracts',
+				'VoteSchemeVerifier.sol',
+				'Groth16Verifier.json',
+			),
+			'utf8',
+		),
 	);
 	const votingArtifact = JSON.parse(
 		fs.readFileSync(
 			path.join(__dirname, 'artifacts', 'contracts', 'Election.sol', 'ZKVoting.json'),
-			'utf8'
-		)
+			'utf8',
+		),
 	);
 
 	// Deploy ProofHelper first
 	const ProofHelper = new ethers.ContractFactory(
 		helperArtifact.abi,
 		helperArtifact.bytecode,
-		signer
+		signer,
 	);
 	const helper = await ProofHelper.deploy();
 	await helper.waitForDeployment();
@@ -294,14 +309,18 @@ async function runBenchmark() {
 	const Groth16Verifier = new ethers.ContractFactory(
 		verifierArtifact.abi,
 		verifierArtifact.bytecode,
-		signer
+		signer,
 	);
 	const verifier = await Groth16Verifier.deploy(helperAddress);
 	await verifier.waitForDeployment();
 	const verifierAddress = await verifier.getAddress();
 
 	// Deploy ZKVoting
-	const ZKVoting = new ethers.ContractFactory(votingArtifact.abi, votingArtifact.bytecode, signer);
+	const ZKVoting = new ethers.ContractFactory(
+		votingArtifact.abi,
+		votingArtifact.bytecode,
+		signer,
+	);
 	const voting = await ZKVoting.deploy();
 	await voting.waitForDeployment();
 	const votingAddress = await voting.getAddress();
@@ -321,12 +340,14 @@ async function runBenchmark() {
 	console.log(`  Election ID: ${electionId}`);
 	console.log('Done.\n');
 
-	// Cast votes
-	console.log(`Casting ${NUM_VOTES.toLocaleString()} votes...`);
+	// Cast votes in parallel batches
+	console.log(
+		`Casting ${NUM_VOTES.toLocaleString()} votes (${PARALLEL_BATCH_SIZE} at a time)...`,
+	);
 	const voteData = [];
 	const startCasting = Date.now();
 
-	for (let i = 0; i < NUM_VOTES; i++) {
+	const submitSingleVote = async (index) => {
 		const optionIndex = Math.floor(Math.random() * NUM_OPTIONS);
 		const nonce = Math.floor(Math.random() * 1000000);
 
@@ -336,7 +357,7 @@ async function runBenchmark() {
 			babyjub,
 			ADMIN_PRIVATE_KEY,
 			issuerPubKey,
-			electionId
+			electionId,
 		);
 
 		const { pA, pB, pC, pubSignals } = formatProofForSolidity(proof, publicSignals);
@@ -346,26 +367,34 @@ async function runBenchmark() {
 
 		// Submit vote
 		try {
-			tx = await voting.submitVote(pA, pB, pC, pubSignals, encryptedVote);
+			const tx = await voting.submitVote(pA, pB, pC, pubSignals, encryptedVote);
 			await tx.wait();
+			return { optionIndex, encryptedVote };
 		} catch (error) {
-			console.error(`\n\nError submitting vote ${i + 1}:`);
-			console.error('Proof:', JSON.stringify({ pA, pB, pC }));
-			console.error('Public signals count:', pubSignals.length);
-			console.error('First few public signals:', pubSignals.slice(0, 5));
+			console.error(`\n\nError submitting vote ${index + 1}:`);
 			console.error('Error:', error.message);
 			throw error;
 		}
+	};
 
-		voteData.push({ optionIndex, encryptedVote });
+	// Submit votes in batches
+	for (let batch = 0; batch < NUM_VOTES; batch += PARALLEL_BATCH_SIZE) {
+		const batchSize = Math.min(PARALLEL_BATCH_SIZE, NUM_VOTES - batch);
+		const promises = [];
 
-		if ((i + 1) % 1000 === 0 || i + 1 === NUM_VOTES) {
-			const elapsed = ((Date.now() - startCasting) / 1000).toFixed(2);
-			const rate = ((i + 1) / (Date.now() - startCasting) * 1000).toFixed(2);
-			process.stdout.write(
-				`\r  Progress: ${i + 1}/${NUM_VOTES} votes cast (${elapsed}s, ${rate} votes/sec)`
-			);
+		for (let i = 0; i < batchSize; i++) {
+			promises.push(submitSingleVote(batch + i));
 		}
+
+		const results = await Promise.all(promises);
+		voteData.push(...results);
+
+		const completed = batch + batchSize;
+		const elapsed = ((Date.now() - startCasting) / 1000).toFixed(2);
+		const rate = ((completed / (Date.now() - startCasting)) * 1000).toFixed(2);
+		process.stdout.write(
+			`\r  Progress: ${completed}/${NUM_VOTES} votes cast (${elapsed}s, ${rate} votes/sec)`,
+		);
 	}
 
 	const castingTime = (Date.now() - startCasting) / 1000;
@@ -435,7 +464,9 @@ async function runBenchmark() {
 	console.log('========================================\n');
 
 	console.log(`Vote counting performance: ${votesPerSecond} votes/second`);
-	console.log(`Total benchmark time: ${((Date.now() - startCasting + castingTime * 1000) / 1000).toFixed(2)} seconds`);
+	console.log(
+		`Total benchmark time: ${((Date.now() - startCasting + castingTime * 1000) / 1000).toFixed(2)} seconds`,
+	);
 }
 
 // Run the benchmark
