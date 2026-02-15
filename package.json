@@ -15,5 +15,11 @@
 		"ffjavascript": "^0.2.57",
 		"poseidon-lite": "^0.3.0",
 		"snarkjs": "^0.7.5"
-	}
+	},
+	"devDependencies": {
+		"@nomicfoundation/hardhat-ethers": "^4.0.4",
+		"ethers": "^6.16.0",
+		"hardhat": "^3.1.8"
+	},
+	"type": "module"
 }
