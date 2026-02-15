@@ -30,9 +30,9 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 // Configuration
-const NUM_VOTES = 10;
+const NUM_VOTES = 1000;
 const NUM_OPTIONS = 4;
-const PARALLEL_BATCH_SIZE = 5; // Number of votes to submit in parallel (reduced to avoid memory issues)
+const PARALLEL_BATCH_SIZE = 10; // Number of votes to submit in parallel (reduced to avoid memory issues)
 
 // Election private key from decrypt_votes.js
 const ELECTION_PRIVATE_KEY = BigInt(
@@ -410,25 +410,51 @@ async function runBenchmark() {
 
 	console.log(`  Retrieved ${events.length} vote events`);
 
-	// Decrypt and count votes
+	// Decrypt and count votes in parallel
 	const voteCounts = new Array(NUM_OPTIONS).fill(0);
 	let validVotes = 0;
 	let invalidVotes = 0;
 
-	for (const event of events) {
-		try {
-			const encryptedVote = event.args.encryptedVote;
-			const { optionIndex } = await decryptVote(encryptedVote, ELECTION_PRIVATE_KEY);
+	// Process votes in parallel batches to maximize decryption speed
+	const DECRYPTION_BATCH_SIZE = 100; // Process 100 votes at a time
 
-			if (optionIndex >= 0 && optionIndex < NUM_OPTIONS) {
-				voteCounts[optionIndex]++;
+	for (let i = 0; i < events.length; i += DECRYPTION_BATCH_SIZE) {
+		const batch = events.slice(i, Math.min(i + DECRYPTION_BATCH_SIZE, events.length));
+
+		const results = await Promise.all(
+			batch.map(async (event) => {
+				try {
+					const encryptedVote = event.args.encryptedVote;
+					const { optionIndex } = await decryptVote(encryptedVote, ELECTION_PRIVATE_KEY);
+
+					if (optionIndex >= 0 && optionIndex < NUM_OPTIONS) {
+						return { valid: true, optionIndex };
+					} else {
+						return { valid: false };
+					}
+				} catch (error) {
+					return { valid: false };
+				}
+			}),
+		);
+
+		// Count the results from this batch
+		for (const result of results) {
+			if (result.valid) {
+				voteCounts[result.optionIndex]++;
 				validVotes++;
 			} else {
 				invalidVotes++;
 			}
-		} catch (error) {
-			invalidVotes++;
 		}
+
+		// Progress update
+		const processed = Math.min(i + DECRYPTION_BATCH_SIZE, events.length);
+		const elapsed = ((Date.now() - startCounting) / 1000).toFixed(2);
+		const rate = ((processed / (Date.now() - startCounting)) * 1000).toFixed(2);
+		process.stdout.write(
+			`\r  Progress: ${processed}/${events.length} votes counted (${elapsed}s, ${rate} votes/sec)`,
+		);
 	}
 
 	const countingTime = (Date.now() - startCounting) / 1000;
