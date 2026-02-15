@@ -32,7 +32,7 @@ const __dirname = path.dirname(__filename);
 // Configuration
 const NUM_VOTES = 1000;
 const NUM_OPTIONS = 4;
-const PARALLEL_BATCH_SIZE = 10; // Number of votes to submit in parallel (reduced to avoid memory issues)
+const PARALLEL_BATCH_SIZE = 5; // Number of votes to submit in parallel (reduced to avoid memory issues)
 
 // Election private key from decrypt_votes.js
 const ELECTION_PRIVATE_KEY = BigInt(
@@ -137,10 +137,9 @@ async function encryptVote(optionIndex, nonce, publicKey, babyjub) {
 
 /**
  * Decrypts a vote encrypted with ECDH + AES-GCM
+ * Optimized version that reuses babyjub instance
  */
-async function decryptVote(encryptedData, privateKey) {
-	const bjj = await circomlibjs.buildBabyjub();
-
+async function decryptVote(encryptedData, privateKey, babyjub) {
 	const hexData = encryptedData.startsWith('0x') ? encryptedData.slice(2) : encryptedData;
 
 	// Parse components
@@ -152,9 +151,9 @@ async function decryptVote(encryptedData, privateKey) {
 	const tag = ciphertextAndTag.slice(-16);
 
 	// Compute shared secret S = privKey * R
-	const F = bjj.F;
+	const F = babyjub.F;
 	const R = [F.e(R_x), F.e(R_y)];
-	const sharedSecret = bjj.mulPointEscalar(R, privateKey);
+	const sharedSecret = babyjub.mulPointEscalar(R, privateKey);
 
 	// Derive AES key - extract BigInt from field element
 	const sharedSecretX = BigInt(F.toObject(sharedSecret[0]));
@@ -175,8 +174,17 @@ async function decryptVote(encryptedData, privateKey) {
 
 /**
  * Generates a ZK proof for a vote
+ * Optimized version that reuses preloaded circuit artifacts
  */
-async function generateProof(eddsa, babyjub, issuerPrivKey, issuerPubKey, electionId) {
+async function generateProof(
+	eddsa,
+	babyjub,
+	issuerPrivKey,
+	issuerPubKey,
+	electionId,
+	wasmBuffer,
+	zkeyBuffer,
+) {
 	// Generate voter credentials
 	const ID = generateRandomBigInt();
 	const X = generateRandomBigInt();
@@ -209,13 +217,11 @@ async function generateProof(eddsa, babyjub, issuerPrivKey, issuerPubKey, electi
 		S: S_bits,
 	};
 
-	const wasmPath = path.join(__dirname, 'build', 'VoteScheme_js', 'VoteScheme.wasm');
-	const zkeyPath = path.join(__dirname, 'VoteScheme_final.zkey');
-
+	// Use preloaded buffers instead of file paths
 	const { proof, publicSignals } = await snarkjs.groth16.fullProve(
 		circuitInput,
-		wasmPath,
-		zkeyPath,
+		wasmBuffer,
+		zkeyBuffer,
 	);
 
 	return { proof, publicSignals, nullifierHash };
@@ -254,6 +260,14 @@ async function runBenchmark() {
 	const eddsa = await circomlibjs.buildEddsa();
 	const babyjub = await circomlibjs.buildBabyjub();
 	const issuerPubKey = eddsa.prv2pub(ADMIN_PRIVATE_KEY);
+	console.log('Done.\n');
+
+	// Preload circuit artifacts once
+	console.log('Loading circuit artifacts...');
+	const wasmPath = path.join(__dirname, 'build', 'VoteScheme_js', 'VoteScheme.wasm');
+	const zkeyPath = path.join(__dirname, 'VoteScheme_final.zkey');
+	const wasmBuffer = fs.readFileSync(wasmPath);
+	const zkeyBuffer = fs.readFileSync(zkeyPath);
 	console.log('Done.\n');
 
 	// Connect to Hardhat node
@@ -351,13 +365,15 @@ async function runBenchmark() {
 		const optionIndex = Math.floor(Math.random() * NUM_OPTIONS);
 		const nonce = Math.floor(Math.random() * 1000000);
 
-		// Generate proof (with fresh credentials each time)
+		// Generate proof (reusing preloaded circuit artifacts)
 		const { proof, publicSignals, nullifierHash } = await generateProof(
 			eddsa,
 			babyjub,
 			ADMIN_PRIVATE_KEY,
 			issuerPubKey,
 			electionId,
+			wasmBuffer,
+			zkeyBuffer,
 		);
 
 		const { pA, pB, pC, pubSignals } = formatProofForSolidity(proof, publicSignals);
@@ -425,7 +441,11 @@ async function runBenchmark() {
 			batch.map(async (event) => {
 				try {
 					const encryptedVote = event.args.encryptedVote;
-					const { optionIndex } = await decryptVote(encryptedVote, ELECTION_PRIVATE_KEY);
+					const { optionIndex } = await decryptVote(
+						encryptedVote,
+						ELECTION_PRIVATE_KEY,
+						babyjub,
+					);
 
 					if (optionIndex >= 0 && optionIndex < NUM_OPTIONS) {
 						return { valid: true, optionIndex };
