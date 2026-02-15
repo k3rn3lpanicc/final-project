@@ -31,3 +31,5 @@ input.json
 # Logs
 *.log
 npm-debug.log*
+
+artifacts/*
