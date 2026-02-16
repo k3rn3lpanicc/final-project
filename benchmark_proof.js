@@ -1,8 +1,8 @@
-const crypto = require('crypto');
-const circomlibjs = require('circomlibjs');
-const { poseidon1, poseidon3 } = require('poseidon-lite');
-const snarkjs = require('snarkjs');
-const fs = require('fs');
+import crypto from 'crypto';
+import * as circomlibjs from 'circomlibjs';
+import { poseidon1, poseidon3 } from 'poseidon-lite';
+import * as snarkjs from 'snarkjs';
+import fs from 'fs';
 
 function toBytesLE32(n) {
 	let x = BigInt(n);
@@ -30,7 +30,7 @@ function generateRandomBigInt() {
 	return val;
 }
 
-async function generateProofOnce(eddsa, babyjub, issuerPrivKey, issuerPubKey) {
+async function generateProofOnce(eddsa, babyjub, issuerPrivKey, issuerPubKey, wasmBuffer, zkeyBuffer) {
 	// 1. Generate random private inputs
 	const ID = generateRandomBigInt();
 	const X = generateRandomBigInt();
@@ -64,11 +64,11 @@ async function generateProofOnce(eddsa, babyjub, issuerPrivKey, issuerPubKey) {
 		S: S_bits,
 	};
 
-	// 6. Generate proof
+	// 6. Generate proof using preloaded buffers
 	const { proof, publicSignals } = await snarkjs.groth16.fullProve(
 		input,
-		'./build/VoteScheme_js/VoteScheme.wasm',
-		'./VoteScheme_final.zkey',
+		wasmBuffer,
+		zkeyBuffer,
 	);
 
 	return { proof, publicSignals };
@@ -110,10 +110,18 @@ async function benchmark() {
 		process.exit(1);
 	}
 
-	console.log('[INFO] Starting benchmark...');
-	console.log('       Target: 100 proof generations\n');
+	// Preload circuit files
+	console.log('[INFO] Preloading circuit files...');
+	const wasmBuffer = fs.readFileSync(wasmPath);
+	const zkeyBuffer = fs.readFileSync(zkeyPath);
+	console.log(`       WASM file size: ${(wasmBuffer.length / 1024 / 1024).toFixed(2)} MB`);
+	console.log(`       zkey file size: ${(zkeyBuffer.length / 1024 / 1024).toFixed(2)} MB`);
+	console.log('[INFO] Circuit files loaded\n');
 
-	const iterations = 100;
+	console.log('[INFO] Starting benchmark...');
+	console.log('       Target: 1000 proof generations\n');
+
+	const iterations = 1000;
 	const times = [];
 	const startTime = Date.now();
 
@@ -130,7 +138,7 @@ async function benchmark() {
 		const iterationStart = Date.now();
 
 		try {
-			await generateProofOnce(eddsa, babyjub, issuerPrivKey, issuerPubKey);
+			await generateProofOnce(eddsa, babyjub, issuerPrivKey, issuerPubKey, wasmBuffer, zkeyBuffer);
 			const iterationTime = Date.now() - iterationStart;
 			times.push(iterationTime);
 		} catch (error) {

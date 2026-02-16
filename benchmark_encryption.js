@@ -1,58 +1,70 @@
 import { buildBabyjub, buildEddsa } from 'circomlibjs';
 import { performance } from 'perf_hooks';
-import { Worker } from 'worker_threads';
+import crypto from 'crypto';
 import os from 'os';
 
-const ADMIN_PRIVATE_KEY = '0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef';
+const ADMIN_PRIVATE_KEY = BigInt(
+	'250082668618633646334213584719494925374420844776732603861415520274085646643',
+);
 const NUM_VOTES = 2000;
 const NUM_OPTIONS = 4;
 const BATCH_SIZE = 100;
-const NUM_WORKERS = Math.min(os.cpus().length, 8);
+const NUM_WORKERS = Math.min(os.cpus().length, 12);
 
-function bigIntToBuffer(bigInt) {
-	const hex = bigInt.toString(16).padStart(64, '0');
-	return Buffer.from(hex, 'hex');
-}
-
-function bufferToBigInt(buffer) {
-	return BigInt('0x' + buffer.toString('hex'));
+function deriveAESKey(sharedSecretX) {
+	const sharedBytes = Buffer.alloc(32);
+	const hexStr = sharedSecretX.toString(16).padStart(64, '0');
+	for (let i = 0; i < 32; i++) {
+		sharedBytes[i] = parseInt(hexStr.substr(i * 2, 2), 16);
+	}
+	return crypto.createHash('sha256').update(sharedBytes).digest();
 }
 
 async function encryptBatch(startIndex, count, adminPublicKey, numOptions) {
 	const babyJub = await buildBabyjub();
-	const publicKeyBigInt = BigInt(adminPublicKey);
-	const publicKeyBuffer = bigIntToBuffer(publicKeyBigInt);
-	const publicKeyPacked = bufferToBigInt(publicKeyBuffer);
-	const publicKeyPoint = babyJub.unpackPoint(babyJub.F.e(publicKeyPacked));
+	const publicKeyPoint = [babyJub.F.e(adminPublicKey.x), babyJub.F.e(adminPublicKey.y)];
 
 	const encryptedVotes = [];
 	for (let i = 0; i < count; i++) {
 		const optionIndex = Math.floor(Math.random() * numOptions);
-		const nonce = Math.floor(Math.random() * 1000000);
+		const nonce = crypto.randomBytes(16).toString('hex');
 		const message = `${optionIndex}|${nonce}`;
-		const messageBuffer = Buffer.from(message, 'utf8');
 
-		const randomBytes = Buffer.from(
-			Array.from({ length: 31 }, () => Math.floor(Math.random() * 256)),
-		);
-		const r = bufferToBigInt(randomBytes) % babyJub.subOrder;
+		// Generate random scalar r
+		const randomBytes = crypto.randomBytes(32);
+		const r = BigInt('0x' + randomBytes.toString('hex')) % babyJub.subOrder;
 
-		const ephemeralPublicKey = babyJub.mulPointEscalar(babyJub.Base8, r);
-		const sharedPoint = babyJub.mulPointEscalar(publicKeyPoint, r);
-		const sharedSecret = bigIntToBuffer(babyJub.F.toObject(sharedPoint[0]));
+		// Compute ephemeral public key R = r * Base8
+		const R = babyJub.mulPointEscalar(babyJub.Base8, r);
 
-		const ciphertext = Buffer.alloc(messageBuffer.length);
-		for (let j = 0; j < messageBuffer.length; j++) {
-			ciphertext[j] = messageBuffer[j] ^ sharedSecret[j % sharedSecret.length];
-		}
+		// Compute shared secret S = r * PublicKey
+		const S = babyJub.mulPointEscalar(publicKeyPoint, r);
+		const sharedSecretX = BigInt(babyJub.F.toObject(S[0]));
 
-		const ephemeralPublicKeyPacked = babyJub.packPoint(ephemeralPublicKey);
-		const ephemeralPublicKeyBigInt = babyJub.F.toObject(babyJub.F.e(ephemeralPublicKeyPacked));
+		// Derive AES key
+		const aesKey = deriveAESKey(sharedSecretX);
 
-		encryptedVotes.push({
-			ciphertext: '0x' + ciphertext.toString('hex'),
-			ephemeralPublicKey: '0x' + ephemeralPublicKeyBigInt.toString(16).padStart(64, '0'),
-		});
+		// Generate random IV
+		const iv = crypto.randomBytes(12);
+
+		// Encrypt using AES-GCM
+		const cipher = crypto.createCipheriv('aes-256-gcm', aesKey, iv);
+		let ciphertext = cipher.update(message, 'utf8');
+		ciphertext = Buffer.concat([ciphertext, cipher.final()]);
+		const authTag = cipher.getAuthTag();
+
+		// Combine: R_x | R_y | IV | ciphertext | authTag
+		const rx = babyJub.F.toObject(R[0]);
+		const ry = babyJub.F.toObject(R[1]);
+		const rxHex = rx.toString(16).padStart(64, '0');
+		const ryHex = ry.toString(16).padStart(64, '0');
+		const ivHex = iv.toString('hex');
+		const ciphertextHex = ciphertext.toString('hex');
+		const authTagHex = authTag.toString('hex');
+
+		const encryptedVote = '0x' + rxHex + ryHex + ivHex + ciphertextHex + authTagHex;
+
+		encryptedVotes.push(encryptedVote);
 	}
 
 	return encryptedVotes;
@@ -60,49 +72,57 @@ async function encryptBatch(startIndex, count, adminPublicKey, numOptions) {
 
 async function decryptBatch(votes, adminPrivateKey, numOptions) {
 	const babyJub = await buildBabyjub();
-	const adminPrivateKeyBuffer = Buffer.from(adminPrivateKey.slice(2), 'hex');
-	const adminPrivateKeyBigInt = bufferToBigInt(adminPrivateKeyBuffer);
 
 	const voteCounts = Array(numOptions).fill(0);
 	let validVotes = 0;
 	let invalidVotes = 0;
 
-	for (const vote of votes) {
+	for (const encryptedVote of votes) {
 		try {
-			const { ciphertext, ephemeralPublicKey } = vote;
+			const hexData = encryptedVote.startsWith('0x') ? encryptedVote.slice(2) : encryptedVote;
 
-			const ephemeralPublicKeyBigInt = BigInt(ephemeralPublicKey);
-			const ephemeralPublicKeyBuffer = bigIntToBuffer(ephemeralPublicKeyBigInt);
-			const ephemeralPublicKeyPacked = bufferToBigInt(ephemeralPublicKeyBuffer);
-			const ephemeralPublicKeyPoint = babyJub.unpackPoint(
-				babyJub.F.e(ephemeralPublicKeyPacked),
-			);
-
-			const sharedPoint = babyJub.mulPointEscalar(
-				ephemeralPublicKeyPoint,
-				adminPrivateKeyBigInt,
-			);
-			const sharedSecret = bigIntToBuffer(babyJub.F.toObject(sharedPoint[0]));
-
-			const ciphertextBuffer = Buffer.from(ciphertext.slice(2), 'hex');
-			const plaintextBuffer = Buffer.alloc(ciphertextBuffer.length);
-			for (let j = 0; j < ciphertextBuffer.length; j++) {
-				plaintextBuffer[j] = ciphertextBuffer[j] ^ sharedSecret[j % sharedSecret.length];
+			if (hexData.length < 152) {
+				invalidVotes++;
+				continue;
 			}
 
-			const message = plaintextBuffer.toString('utf8');
-			const parts = message.split('|');
+			// Parse components
+			const rx = BigInt('0x' + hexData.slice(0, 64));
+			const ry = BigInt('0x' + hexData.slice(64, 128));
+			const ivHex = hexData.slice(128, 152);
+			const ciphertextHex = hexData.slice(152);
 
+			// Convert R to curve point
+			const R = [babyJub.F.e(rx), babyJub.F.e(ry)];
+
+			// Compute shared secret: S = privKey * R
+			const S = babyJub.mulPointEscalar(R, adminPrivateKey);
+			const sharedSecretX = BigInt(babyJub.F.toObject(S[0]));
+
+			// Derive AES key
+			const aesKey = deriveAESKey(sharedSecretX);
+
+			// Convert IV and ciphertext from hex to Buffer
+			const iv = Buffer.from(ivHex, 'hex');
+			const ciphertextWithTag = Buffer.from(ciphertextHex, 'hex');
+
+			// Split ciphertext and auth tag
+			const authTag = ciphertextWithTag.slice(-16);
+			const ciphertext = ciphertextWithTag.slice(0, -16);
+
+			// Decrypt using AES-GCM
+			const decipher = crypto.createDecipheriv('aes-256-gcm', aesKey, iv);
+			decipher.setAuthTag(authTag);
+
+			let plaintext = decipher.update(ciphertext, null, 'utf8');
+			plaintext += decipher.final('utf8');
+
+			// Parse plaintext
+			const parts = plaintext.split('|');
 			if (parts.length === 2) {
 				const optionIndex = parseInt(parts[0], 10);
-				const nonce = parseInt(parts[1], 10);
 
-				if (
-					!isNaN(optionIndex) &&
-					!isNaN(nonce) &&
-					optionIndex >= 0 &&
-					optionIndex < numOptions
-				) {
+				if (!isNaN(optionIndex) && optionIndex >= 0 && optionIndex < numOptions) {
 					voteCounts[optionIndex]++;
 					validVotes++;
 				} else {
@@ -133,15 +153,15 @@ async function main() {
 
 	console.log('Initializing cryptographic libraries...');
 	const babyJub = await buildBabyjub();
-	const eddsa = await buildEddsa();
 	console.log('Done.');
 	console.log();
 
-	const adminPrivateKeyBuffer = Buffer.from(ADMIN_PRIVATE_KEY.slice(2), 'hex');
-	const adminPublicKey = eddsa.prv2pub(adminPrivateKeyBuffer);
-	const publicKeyPoint = babyJub.unpackPoint(adminPublicKey);
-	const adminPublicKeyBigInt = babyJub.F.toObject(babyJub.F.e(babyJub.packPoint(publicKeyPoint)));
-	const adminPublicKeyHex = '0x' + adminPublicKeyBigInt.toString(16).padStart(64, '0');
+	// Calculate public key from private key
+	const adminPublicKeyPoint = babyJub.mulPointEscalar(babyJub.Base8, ADMIN_PRIVATE_KEY);
+	const adminPublicKey = {
+		x: BigInt(babyJub.F.toObject(adminPublicKeyPoint[0])),
+		y: BigInt(babyJub.F.toObject(adminPublicKeyPoint[1])),
+	};
 
 	console.log('Generating and encrypting votes (parallel batches)...');
 	const startGeneration = performance.now();
@@ -157,7 +177,7 @@ async function main() {
 			const batchIndex = batch + i;
 			const startIndex = batchIndex * BATCH_SIZE;
 			const count = Math.min(BATCH_SIZE, NUM_VOTES - startIndex);
-			promises.push(encryptBatch(startIndex, count, adminPublicKeyHex, NUM_OPTIONS));
+			promises.push(encryptBatch(startIndex, count, adminPublicKey, NUM_OPTIONS));
 		}
 
 		const results = await Promise.all(promises);
